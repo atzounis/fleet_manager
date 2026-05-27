@@ -332,13 +332,19 @@ Example output:
 
 ```text
 === Fleet Manager Arduino Agent ===
-Device ID: 30aea4c2cdc4 (Wi-Fi MAC)
-HW 1.0  FW 1.0.0
+Chip: ESP32-D0WD
+Device ID: 30aea4c2cdc4
+Device Name: esp32-device
+HW 1.0 FW 1.1.3
 API: http://192.168.68.108:52841
-WiFi OK, IP=192.168.68.110 RSSI=-49
-[crash-report] HTTP 202 accepted
-[heartbeat] OK heap=227512 min_heap=223344 rssi=-50 batt=0 mV
-[heartbeat] HTTP 200 (59 bytes CBOR)
+OTA poll every 300 s
+WiFi connecting to Argo_IoT....
+WiFi OK
+IP=192.168.68.110 RSSI=-51
+[crash-report] accepted
+[heartbeat] OK heap=226920 min_heap=222712 rssi=-51 batt=21 mV cpu=41C
+[ota] checking for update (fw 1.1.3)...
+[ota] no update
 ```
 
 More detail: [`firmware/examples/arduino/FleetManagerAgent/README.md`](firmware/examples/arduino/FleetManagerAgent/README.md)
