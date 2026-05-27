@@ -1,6 +1,6 @@
 # Fleet Manager (MicroTelemetry)
 
-A lightweight IoT observability and firmware management platform for **ESP32** fleets. It ingests crash dumps, streams device telemetry over **CBOR**, and delivers **OTA** updates via cohort-based rollouts.
+A lightweight IoT observability and firmware management platform for **ESP32** (and **ESP8266** via Arduino) fleets. It ingests crash dumps, streams device telemetry over **CBOR**, and delivers **OTA** updates via cohort-based rollouts.
 
 Built with **Django 5**, **Celery**, **PostgreSQL**, **Redis**, and **S3-compatible storage** (MinIO locally). A **React** dashboard visualizes fleet health, crashes, and firmware releases.
 
@@ -343,6 +343,24 @@ WiFi OK, IP=192.168.68.110 RSSI=-49
 
 More detail: [`firmware/examples/arduino/FleetManagerAgent/README.md`](firmware/examples/arduino/FleetManagerAgent/README.md)
 
+### Arduino ESP8266 (NodeMCU / Wemos D1)
+
+Same agent API as ESP32, but a **separate sketch and `.bin`**. Use HW version **`8266`** in the dashboard so OTA never mixes chip families.
+
+```bash
+cp firmware/examples/arduino/FleetManagerAgent8266/secrets.example.h \
+   firmware/examples/arduino/FleetManagerAgent8266/secrets.h
+# Edit secrets.h: Wi-Fi + FLEET_API_HOST=<your LAN IP>
+```
+
+1. Install board package **esp8266** by ESP8266 Community (Boards Manager).
+2. Open `firmware/examples/arduino/FleetManagerAgent8266/FleetManagerAgent8266.ino`.
+3. Select your board (e.g. **LOLIN(WEMOS) D1 R2 & mini**) and an **OTA-capable** flash size.
+4. Upload; Serial Monitor @ **115200** — expect `HW 8266  FW 1.0.0` and heartbeats.
+5. For OTA: export **`FleetManagerAgent8266.ino.bin`**, deploy with **HW version `8266`** in the Firmware tab.
+
+Full guide: [`firmware/examples/arduino/FleetManagerAgent8266/README.md`](firmware/examples/arduino/FleetManagerAgent8266/README.md)
+
 ### Generate OTA binary locally (Arduino IDE)
 
 Use this when you want to push a new build from the dashboard **Firmware** tab (**Deploy OTA Update**) instead of flashing over USB.
@@ -384,7 +402,7 @@ Upload **one** file per deployment: `FleetManagerAgent.ino.bin`.
 #### Important tips
 
 - **OTA code must be in the binary you ship.** The sketch must include OTA check/apply logic (this repo’s agent does). If you flash a build without OTA support, the next update requires USB again.
-- **Version numbers:** set **Version** in the dashboard to match `FLEET_FW_VERSION` in `secrets.h` (e.g. `1.1.0`). Set **HW version** to match `FLEET_HW_VERSION` (e.g. `1.0`).
+- **Version numbers:** set **Version** in the dashboard to match `FLEET_FW_VERSION` in `secrets.h` (e.g. `1.1.0`). Set **HW version** to match `FLEET_HW_VERSION` (e.g. `1.0` for ESP32, **`8266`** for ESP8266).
 - **First install vs OTA:** use USB **Upload** once to get OTA-capable firmware on the device; after that, use the dashboard for subsequent updates.
 - **Polling interval:** the Arduino agent checks OTA about every **5 minutes** (`FLEET_OTA_MS`) unless overridden in `secrets.h`. After **Send OTA**, wait for the next poll or reboot the device to trigger sooner.
 - **Presigned URLs:** if OTA download fails from the device, set `AWS_S3_PUBLIC_ENDPOINT_URL` in `.env` to your LAN MinIO API URL (see `.env.example`).

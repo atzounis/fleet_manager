@@ -1,0 +1,7 @@
+# Local Wi-Fi and API credentials — copy from secrets.example.h in each sketch folder
+**/secrets.h
+
+# Arduino IDE compile output
+**/build/
+
+.DS_Store

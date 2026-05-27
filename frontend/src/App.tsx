@@ -118,6 +118,18 @@ export default function App() {
     );
   };
 
+  /* Match deployment HW to selected devices (must equal FLEET_HW_VERSION on the device). */
+  useEffect(() => {
+    if (otaTargets.length === 0) return;
+    const hwVersions = otaTargets
+      .map((id) => devices.find((d) => d.device_id === id)?.hw_version)
+      .filter((v): v is string => Boolean(v));
+    const unique = [...new Set(hwVersions)];
+    if (unique.length === 1) {
+      setOtaHwVersion(unique[0]);
+    }
+  }, [otaTargets, devices]);
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
@@ -319,7 +331,12 @@ export default function App() {
             <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
               <h2 className="text-sm font-medium text-slate-300">Deploy OTA Update</h2>
               <p className="mt-1 text-xs text-slate-500">
-                Upload a firmware binary, select target devices, and queue deployment.
+                Upload a firmware binary, select target devices, and queue deployment.{" "}
+                <span className="text-amber-400/90">
+                  HW version must match each device&apos;s reported HW (ESP8266 agents use{" "}
+                  <span className="font-mono">8266</span>, not <span className="font-mono">1.0</span>
+                  ).
+                </span>
               </p>
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 <input
@@ -331,10 +348,11 @@ export default function App() {
                 />
                 <input
                   type="text"
-                  placeholder="HW version (e.g. 1.0)"
+                  placeholder="HW version (ESP32: 1.0, ESP8266: 8266)"
                   value={otaHwVersion}
                   onChange={(e) => setOtaHwVersion(e.target.value)}
                   className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  title="Must match FLEET_HW_VERSION in the device secrets.h and X-Hw-Version on ota-check"
                 />
                 <input
                   type="file"
@@ -368,6 +386,9 @@ export default function App() {
                       />
                       <span className="font-mono text-emerald-300">{d.device_id}</span>
                       <span className="text-slate-500">{d.label || "—"}</span>
+                      <span className="ml-auto font-mono text-slate-500">
+                        hw {d.hw_version} fw {d.fw_version}
+                      </span>
                     </label>
                   ))}
                 </div>
@@ -383,13 +404,32 @@ export default function App() {
                       setOtaError("Version, firmware file, and at least one target are required.");
                       return;
                     }
+                    const targetDevices = devices.filter((d) =>
+                      otaTargets.includes(d.device_id)
+                    );
+                    const deviceHws = [
+                      ...new Set(targetDevices.map((d) => d.hw_version).filter(Boolean)),
+                    ];
+                    const deployHw = otaHwVersion.trim() || "1.0";
+                    if (deviceHws.length > 1) {
+                      setOtaError(
+                        "Selected devices report different HW versions. Deploy to one HW group at a time."
+                      );
+                      return;
+                    }
+                    if (deviceHws.length === 1 && deviceHws[0] !== deployHw) {
+                      setOtaError(
+                        `HW version must be ${deviceHws[0]} to match selected device(s) (ota-check uses each device's reported HW).`
+                      );
+                      return;
+                    }
                     setOtaSending(true);
                     setOtaError(null);
                     try {
                       await api.createOtaDeployment({
                         firmware: otaFile,
                         version: otaVersion.trim(),
-                        hwVersion: otaHwVersion.trim() || "1.0",
+                        hwVersion: deployHw,
                         deviceIds: otaTargets,
                       });
                       setOtaVersion("");

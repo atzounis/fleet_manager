@@ -1,10 +1,11 @@
 # Fleet Manager — device examples
 
-Ready-to-flash ESP32 samples that talk to the Docker API.
+Ready-to-flash samples that talk to the Docker API.
 
 | Example | Path | Stack |
 |---------|------|--------|
-| **Arduino** | [`arduino/FleetManagerAgent/`](arduino/FleetManagerAgent/) | `loop()` + HTTPClient |
+| **Arduino (ESP32)** | [`arduino/FleetManagerAgent/`](arduino/FleetManagerAgent/) | `loop()` + HTTPClient |
+| **Arduino (ESP8266)** | [`arduino/FleetManagerAgent8266/`](arduino/FleetManagerAgent8266/) | `loop()` + ESP8266httpUpdate |
 | **ESP-IDF** | [`esp-idf/fleet_agent/`](esp-idf/fleet_agent/) | FreeRTOS tasks + `esp_http_client` |
 
 ## Before you flash
@@ -15,9 +16,11 @@ Ready-to-flash ESP32 samples that talk to the Docker API.
    docker compose up -d
    ```
 
-2. Use your computer's **LAN IP** in device config (ESP32 cannot use `127.0.0.1`).
+2. Use your computer's **LAN IP** in device config (the ESP cannot use `127.0.0.1`).
 
 3. Ensure Docker publishes API on port **52841** (default `WEB_PORT`).
+
+4. **ESP8266:** set `FLEET_HW_VERSION` to **`8266`** and deploy only 8266-built `.bin` files. **ESP32:** use HW `1.0` (or your own) and ESP32 `.bin` files — never mix chip families in one OTA deployment.
 
 ## Quick test without hardware
 
