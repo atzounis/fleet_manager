@@ -1,0 +1,13 @@
+# GitHub Copilot content exclusion (repository settings)
+#
+# GitHub does not read this file automatically. Apply it in the repo UI:
+#   Settings → Copilot → Content exclusion → "Paths to exclude in this repository"
+#
+# Docs: https://docs.github.com/en/copilot/how-tos/configure-content-exclusion/exclude-content-from-copilot
+#
+# Requires Copilot Business or Enterprise. Does not apply to Copilot CLI, cloud
+# agent, or Agent mode in IDE chat.
+
+# Claude Code memory file — exclude from Copilot completions, chat, and code review.
+- "/CLAUDE.md"
+- "CLAUDE.md"

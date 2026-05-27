@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Strip Cursor attribution so cursoragent does not appear as a GitHub co-author.
+# Enable once per clone: git config core.hooksPath .githooks
+
+set -euo pipefail
+
+msg_file="${1:-}"
+[[ -n "$msg_file" && -f "$msg_file" ]] || exit 0
+
+patterns=(
+  '/cursoragent@cursor\.com/d'
+  '/^Co-authored-by: Cursor/d'
+  '/^Made-with: Cursor/d'
+)
+
+if sed --version >/dev/null 2>&1; then
+  for pattern in "${patterns[@]}"; do
+    sed -i "${pattern}" "$msg_file"
+  done
+else
+  for pattern in "${patterns[@]}"; do
+    sed -i '' "${pattern}" "$msg_file"
+  done
+fi
+
+exit 0

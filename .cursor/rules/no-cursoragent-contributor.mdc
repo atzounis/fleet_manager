@@ -1,0 +1,26 @@
+---
+description: Keep cursoragent off GitHub contributors — no Cursor git attribution
+alwaysApply: true
+---
+
+# No cursoragent on GitHub contributors
+
+GitHub counts **authors and co-authors** on merged commits toward the contributors graph. Do not add `cursoragent` or Cursor attribution.
+
+## When creating commits (agent or user request)
+
+- Use only the repository user's configured `user.name` and `user.email` for author and committer.
+- **Never** add trailers or footer lines such as:
+  - `Co-authored-by: Cursor <cursoragent@cursor.com>`
+  - `Co-authored-by: Cursor Agent <...>`
+  - `Made-with: Cursor`
+- **Never** pass `--trailer` (or equivalent) that adds Cursor co-authorship.
+- Do not amend or rewrite history to insert Cursor attribution.
+
+## IDE reminder
+
+Each developer should disable **Cursor Settings → Agents → Attribution** (Commit Attribution and PR Attribution off). Project hooks in `.githooks/` strip attribution if it is still injected.
+
+## If attribution already landed in history
+
+Do not force-push. Tell the user how to rewrite or filter history if they need to remove past co-authors from the contributors list.

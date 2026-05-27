@@ -1,0 +1,12 @@
+---
+description: Do not load or apply CLAUDE.md in Cursor sessions
+alwaysApply: true
+---
+
+# Exclude CLAUDE.md
+
+`CLAUDE.md` is project memory for **Claude Code** only. In Cursor:
+
+- Do not read, @-mention, or treat `CLAUDE.md` as instructions or context.
+- Do not summarize or apply its contents unless the user explicitly asks you to open that file.
+- Use `.cursor/rules/`, user rules, and the codebase instead.
