@@ -388,6 +388,7 @@ Upload **one** file per deployment: `FleetManagerAgent.ino.bin`.
 - **First install vs OTA:** use USB **Upload** once to get OTA-capable firmware on the device; after that, use the dashboard for subsequent updates.
 - **Polling interval:** the Arduino agent checks OTA about every **5 minutes** (`FLEET_OTA_MS`). After **Send OTA**, wait for the next poll or reboot the device to trigger sooner.
 - **Presigned URLs:** if OTA download fails from the device, set `AWS_S3_PUBLIC_ENDPOINT_URL` in `.env` to your LAN MinIO API URL (see `.env.example`).
+- **Deployment stuck at `pending` / `offered`:** this usually means the device can reach `/api/v1/agent/ota-check/` but cannot fetch the binary URL from `Location`. A common misconfiguration is signed URLs using `http://minio:9000/...` (Docker-internal host). Configure `AWS_S3_PUBLIC_ENDPOINT_URL=http://<your-lan-ip>:<MINIO_API_HOST_PORT>` (for example `http://192.168.68.108:38472`) and restart `web`.
 
 ### ESP-IDF / FreeRTOS
 
