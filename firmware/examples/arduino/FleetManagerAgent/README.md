@@ -17,6 +17,8 @@ The server calls `get_or_create_device()` on the first heartbeat — no separate
 - `heap_free`, `heap_min_free` — from `ESP.getFreeHeap()` / `ESP.getMinFreeHeap()`
 - `wifi_rssi` — from `WiFi.RSSI()` (or `-127` if disconnected)
 - `battery_mv` — from ADC if `FLEET_BATTERY_ADC_PIN >= 0`, else `0` (unknown)
+- `battery_pct` — estimated from `battery_mv` when available (`0..100`, else `255` unknown)
+- `cpu_temp_c` — from `temperatureRead()` (`-127` when unavailable)
 
 Encoding is implemented in `fleet_cbor.c` (same format as `firmware/sdk/`).
 

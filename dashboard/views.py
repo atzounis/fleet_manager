@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import generics
@@ -17,13 +18,26 @@ from .serializers import (
 
 class FleetStatsView(APIView):
     def get(self, request):
-        stale_cutoff = timezone.now() - timezone.timedelta(hours=24)
+        stale_cutoff = timezone.now() - timezone.timedelta(
+            seconds=settings.HEARTBEAT_ONLINE_WINDOW_SECONDS
+        )
+        devices_online = Device.objects.filter(last_seen_at__gte=stale_cutoff).count()
+        devices_total = Device.objects.count()
         return Response(
             {
-                "devices_total": Device.objects.count(),
-                "devices_online": Device.objects.filter(
-                    last_seen_at__gte=stale_cutoff
-                ).count(),
+                "devices_total": devices_total,
+                "devices_online": devices_online,
+                "devices_offline": devices_total - devices_online,
+                "heartbeat_expected_interval_seconds": settings.HEARTBEAT_EXPECTED_INTERVAL_SECONDS,
+                "heartbeat_missed_iterations": settings.HEARTBEAT_MISSED_ITERATIONS,
+                "online_window_seconds": settings.HEARTBEAT_ONLINE_WINDOW_SECONDS,
+                "thresholds": {
+                    "heap_free_bytes_min": settings.THRESHOLD_HEAP_FREE_BYTES_MIN,
+                    "wifi_rssi_dbm_min": settings.THRESHOLD_WIFI_RSSI_DBM_MIN,
+                    "battery_voltage_mv_min": settings.THRESHOLD_BATTERY_VOLTAGE_MV_MIN,
+                    "battery_level_pct_min": settings.THRESHOLD_BATTERY_LEVEL_PCT_MIN,
+                    "cpu_temperature_c_max": settings.THRESHOLD_CPU_TEMPERATURE_C_MAX,
+                },
                 "crashes_pending": CrashReport.objects.filter(
                     status=CrashReport.Status.PENDING
                 ).count(),

@@ -90,6 +90,8 @@ class HeartbeatMetric(models.Model):
     heap_min_free_bytes = models.PositiveIntegerField()
     wifi_rssi_dbm = models.SmallIntegerField()
     battery_voltage_mv = models.PositiveSmallIntegerField(null=True, blank=True)
+    battery_level_pct = models.PositiveSmallIntegerField(null=True, blank=True)
+    cpu_temperature_c = models.SmallIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ["-recorded_at"]

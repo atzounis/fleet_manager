@@ -12,6 +12,20 @@ import { StatCard } from "./components/StatCard";
 
 type Tab = "devices" | "crashes" | "firmware";
 
+function formatAgo(seconds: number | null): string {
+  if (seconds == null) return "never";
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  return `${Math.floor(seconds / 3600)}h ago`;
+}
+
+function formatWindow(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
+}
+
 export default function App() {
   const [stats, setStats] = useState<FleetStats | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -88,7 +102,12 @@ export default function App() {
         {stats && (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard label="Devices" value={stats.devices_total} />
-            <StatCard label="Online (24h)" value={stats.devices_online} accent="emerald" />
+            <StatCard
+              label={`Online (${formatWindow(stats.online_window_seconds)})`}
+              value={stats.devices_online}
+              accent="emerald"
+            />
+            <StatCard label="Offline" value={stats.devices_offline} accent="amber" />
             <StatCard label="Pending crashes" value={stats.crashes_pending} accent="amber" />
             <StatCard label="Active firmware" value={stats.firmware_active} />
           </section>
@@ -128,8 +147,21 @@ export default function App() {
                       }`}
                     >
                       <span className="font-mono text-emerald-300">{d.device_id}</span>
+                      <span
+                        className={`ml-2 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
+                          d.is_online
+                            ? "bg-emerald-600/30 text-emerald-300"
+                            : "bg-rose-600/30 text-rose-300"
+                        }`}
+                      >
+                        {d.status}
+                      </span>
                       <span className="mt-0.5 block text-slate-500">
                         {d.label || "—"} · fw {d.fw_version}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-slate-500">
+                        last seen {formatAgo(d.seconds_since_last_seen)} (offline after{" "}
+                        {Math.floor(d.offline_after_seconds / 60)}m)
                       </span>
                     </button>
                   </li>
@@ -143,8 +175,8 @@ export default function App() {
               </ul>
             </div>
             <div className="lg:col-span-2">
-              {selected && metrics.length > 0 ? (
-                <DeviceChart device={selected} metrics={metrics} />
+              {selected && metrics.length > 0 && stats ? (
+                <DeviceChart device={selected} metrics={metrics} thresholds={stats.thresholds} />
               ) : (
                 <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-slate-700 text-slate-500">
                   Select a device with telemetry history

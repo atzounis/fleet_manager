@@ -404,6 +404,8 @@ CBOR map fields:
 - `heap_min_free` (uint) — minimum ever free heap  
 - `wifi_rssi` (int) — RSSI in dBm  
 - `battery_mv` (uint, optional) — battery voltage in millivolts  
+- `battery_pct` (uint, optional) — battery level percentage (`0..100`)  
+- `cpu_temp_c` (int, optional) — CPU temperature in Celsius  
 
 ### Crash report
 
@@ -448,8 +450,28 @@ Flashable examples: [`firmware/examples/`](firmware/examples/).
 
 ## Environment variables
 
-See [`.env.example`](.env.example) for `DATABASE_URL`, `REDIS_URL`, S3/MinIO credentials, and flush interval.
+See [`.env.example`](.env.example) for `DATABASE_URL`, `REDIS_URL`, S3/MinIO credentials, heartbeat flush interval, and online/offline tuning:
+
+- `HEARTBEAT_EXPECTED_INTERVAL_SECONDS` (default `60`)
+- `HEARTBEAT_MISSED_ITERATIONS` (default `3`)
+
+Devices are considered offline when no heartbeat arrives for `EXPECTED_INTERVAL * MISSED_ITERATIONS` seconds.
+
+Telemetry charts also support configurable red dashed threshold lines:
+
+- `THRESHOLD_HEAP_FREE_BYTES_MIN`
+- `THRESHOLD_WIFI_RSSI_DBM_MIN`
+- `THRESHOLD_BATTERY_VOLTAGE_MV_MIN`
+- `THRESHOLD_BATTERY_LEVEL_PCT_MIN`
+- `THRESHOLD_CPU_TEMPERATURE_C_MAX`
 
 ## License
 
-MIT (add a `LICENSE` file if you distribute this project).
+Free for personal, educational, and internal evaluation use.
+
+Commercial use is not permitted without explicit permission from the project owner.
+
+Recommended license text for this policy: **PolyForm Noncommercial 1.0.0**  
+([https://polyformproject.org/licenses/noncommercial/1.0.0/](https://polyformproject.org/licenses/noncommercial/1.0.0/))
+
+Add a `LICENSE` file in the repository root with the full license text before distribution.

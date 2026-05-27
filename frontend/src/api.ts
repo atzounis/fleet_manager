@@ -9,9 +9,20 @@ async function fetchJson<T>(path: string): Promise<T> {
 export interface FleetStats {
   devices_total: number;
   devices_online: number;
+  devices_offline: number;
   crashes_pending: number;
   firmware_active: number;
   cohorts: number;
+  heartbeat_expected_interval_seconds: number;
+  heartbeat_missed_iterations: number;
+  online_window_seconds: number;
+  thresholds: {
+    heap_free_bytes_min: number;
+    wifi_rssi_dbm_min: number;
+    battery_voltage_mv_min: number;
+    battery_level_pct_min: number;
+    cpu_temperature_c_max: number;
+  };
 }
 
 export interface Device {
@@ -21,6 +32,10 @@ export interface Device {
   fw_version: string;
   cohort_name: string | null;
   last_seen_at: string | null;
+  is_online: boolean;
+  status: "online" | "offline";
+  seconds_since_last_seen: number | null;
+  offline_after_seconds: number;
 }
 
 export interface Heartbeat {
@@ -29,6 +44,8 @@ export interface Heartbeat {
   heap_min_free_bytes: number;
   wifi_rssi_dbm: number;
   battery_voltage_mv: number | null;
+  battery_level_pct: number | null;
+  cpu_temperature_c: number | null;
 }
 
 export interface CrashReport {
