@@ -8,6 +8,18 @@
  * Setup: copy secrets.example.h → secrets.h
  */
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+uint8_t temprature_sens_read();
+
+#ifdef __cplusplus
+}
+#endif
+
+
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <esp_mac.h>
@@ -36,7 +48,6 @@ struct FleetTelemetry {
     uint32_t heap_min_free;
     int16_t wifi_rssi;
     uint16_t battery_mv;
-    uint8_t battery_pct;
     int16_t cpu_temp_c;
 };
 
@@ -83,29 +94,9 @@ static uint16_t read_battery_mv()
 #endif
 }
 
-static uint8_t battery_pct_from_mv(uint16_t mv)
+static float_t read_cpu_temp_c()
 {
-    if (mv == 0) {
-        return 255; /* unknown */
-    }
-    const int min_mv = 3300;
-    const int max_mv = 4200;
-    int pct = ((int)mv - min_mv) * 100 / (max_mv - min_mv);
-    if (pct < 0) {
-        pct = 0;
-    } else if (pct > 100) {
-        pct = 100;
-    }
-    return (uint8_t)pct;
-}
-
-static int16_t read_cpu_temp_c()
-{
-#if defined(ESP32) || defined(ESP32S2) || defined(ESP32S3) || defined(ESP32C3)
-    return (int16_t)temperatureRead();
-#else
-    return -127; /* unknown */
-#endif
+    return (float_t)(temprature_sens_read() - 32) / 1.8;
 }
 
 static FleetTelemetry collect_telemetry()
@@ -115,7 +106,6 @@ static FleetTelemetry collect_telemetry()
     t.heap_min_free = (uint32_t)ESP.getMinFreeHeap();
     t.wifi_rssi = (WiFi.status() == WL_CONNECTED) ? (int16_t)WiFi.RSSI() : (int16_t)-127;
     t.battery_mv = read_battery_mv();
-    t.battery_pct = battery_pct_from_mv(t.battery_mv);
     t.cpu_temp_c = read_cpu_temp_c();
     return t;
 }
@@ -152,7 +142,6 @@ static bool send_heartbeat()
         t.heap_min_free,
         t.wifi_rssi,
         t.battery_mv,
-        t.battery_pct,
         t.cpu_temp_c);
 
     HTTPClient http;
@@ -164,12 +153,11 @@ static bool send_heartbeat()
     int code = http.POST(body, len);
     if (code == 200) {
         Serial.printf(
-            "[heartbeat] OK heap=%lu min_heap=%lu rssi=%d batt=%u mV (%u%%) cpu=%dC\n",
+            "[heartbeat] OK heap=%lu min_heap=%lu rssi=%d batt=%u mV cpu=%dC\n",
                       (unsigned long)t.heap_free,
                       (unsigned long)t.heap_min_free,
                       (int)t.wifi_rssi,
                       (unsigned)t.battery_mv,
-                      (unsigned)t.battery_pct,
                       (int)t.cpu_temp_c);
     } else {
         Serial.printf("[heartbeat] HTTP %d body: %s\n", code, http.getString().c_str());

@@ -20,9 +20,16 @@ export interface FleetStats {
     heap_free_bytes_min: number;
     wifi_rssi_dbm_min: number;
     battery_voltage_mv_min: number;
-    battery_level_pct_min: number;
     cpu_temperature_c_max: number;
   };
+}
+
+export interface ThresholdConfig {
+  heap_free_bytes_min: number;
+  wifi_rssi_dbm_min: number;
+  battery_voltage_mv_min: number;
+  cpu_temperature_c_max: number;
+  updated_at: string | null;
 }
 
 export interface Device {
@@ -44,7 +51,6 @@ export interface Heartbeat {
   heap_min_free_bytes: number;
   wifi_rssi_dbm: number;
   battery_voltage_mv: number | null;
-  battery_level_pct: number | null;
   cpu_temperature_c: number | null;
 }
 
@@ -80,4 +86,14 @@ export const api = {
     ),
   crashes: () => fetchJson<Paginated<CrashReport>>("/crashes/"),
   firmware: () => fetchJson<Paginated<FirmwareRelease>>("/firmware/"),
+  thresholds: () => fetchJson<ThresholdConfig>("/thresholds/"),
+  updateThresholds: async (payload: Omit<ThresholdConfig, "updated_at">) => {
+    const res = await fetch(`${API_BASE}/thresholds/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: /thresholds/`);
+    return (await res.json()) as ThresholdConfig;
+  },
 };

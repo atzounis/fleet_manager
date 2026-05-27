@@ -13,4 +13,5 @@ urlpatterns = [
     path("crashes/", views.CrashListView.as_view(), name="crash-list"),
     path("firmware/", views.FirmwareListView.as_view(), name="firmware-list"),
     path("cohorts/", views.CohortListView.as_view(), name="cohort-list"),
+    path("thresholds/", views.TelemetryThresholdConfigView.as_view(), name="thresholds"),
 ]

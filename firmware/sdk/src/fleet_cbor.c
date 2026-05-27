@@ -58,7 +58,6 @@ size_t fleet_cbor_encode_heartbeat(
     uint32_t heap_min_free,
     int16_t wifi_rssi,
     uint16_t battery_mv,
-    uint8_t battery_pct,
     int16_t cpu_temp_c)
 {
     if (out_cap < 96) {
@@ -66,7 +65,7 @@ size_t fleet_cbor_encode_heartbeat(
     }
 
     size_t i = 0;
-    out[i++] = 0xa6; /* map(6) */
+    out[i++] = 0xa5; /* map(6) */
 
     i += write_text_key(out + i, "heap_free");
     i += write_uint32(out + i, heap_free);
@@ -80,8 +79,6 @@ size_t fleet_cbor_encode_heartbeat(
     i += write_text_key(out + i, "battery_mv");
     i += write_uint32(out + i, battery_mv);
 
-    i += write_text_key(out + i, "battery_pct");
-    i += write_uint32(out + i, battery_pct);
 
     i += write_text_key(out + i, "cpu_temp_c");
     i += write_int(cpu_temp_c, out + i);

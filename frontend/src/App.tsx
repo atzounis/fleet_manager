@@ -6,11 +6,12 @@ import {
   FleetStats,
   FirmwareRelease,
   Heartbeat,
+  ThresholdConfig,
 } from "./api";
 import { DeviceChart } from "./components/DeviceChart";
 import { StatCard } from "./components/StatCard";
 
-type Tab = "devices" | "crashes" | "firmware";
+type Tab = "devices" | "crashes" | "firmware" | "settings";
 
 function formatAgo(seconds: number | null): string {
   if (seconds == null) return "never";
@@ -34,7 +35,10 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<Heartbeat[]>([]);
   const [tab, setTab] = useState<Tab>("devices");
+  const [thresholds, setThresholds] = useState<ThresholdConfig | null>(null);
+  const [savingThresholds, setSavingThresholds] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [thresholdError, setThresholdError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -51,6 +55,20 @@ export default function App() {
       setDevices(d.results);
       setCrashes(c.results);
       setFirmware(f.results);
+      setThresholds((current) => ({
+        heap_free_bytes_min: s.thresholds.heap_free_bytes_min,
+        wifi_rssi_dbm_min: s.thresholds.wifi_rssi_dbm_min,
+        battery_voltage_mv_min: s.thresholds.battery_voltage_mv_min,
+        cpu_temperature_c_max: s.thresholds.cpu_temperature_c_max,
+        updated_at: current?.updated_at ?? null,
+      }));
+      // Best-effort fetch; do not block dashboard if this endpoint briefly fails.
+      api.thresholds()
+        .then((th) => {
+          setThresholds(th);
+          setThresholdError(null);
+        })
+        .catch(() => null);
       if (!selectedId && d.results.length > 0) {
         setSelectedId(d.results[0].device_id);
       }
@@ -114,7 +132,7 @@ export default function App() {
         )}
 
         <nav className="flex gap-2 border-b border-slate-800 pb-2">
-          {(["devices", "crashes", "firmware"] as Tab[]).map((t) => (
+          {(["devices", "crashes", "firmware", "settings"] as Tab[]).map((t) => (
             <button
               key={t}
               type="button"
@@ -235,6 +253,117 @@ export default function App() {
               ))}
             </tbody>
           </table>
+        )}
+
+        {tab === "settings" && !loading && thresholds && (
+          <section className="max-w-xl space-y-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+            <h2 className="text-sm font-medium text-slate-300">
+              Threshold Configuration
+            </h2>
+            <p className="text-xs text-slate-500">
+              These values control the red dashed region lines in telemetry charts.
+            </p>
+
+            <label className="block text-sm">
+              <span className="mb-1 block text-slate-400">Heap free minimum (bytes)</span>
+              <input
+                type="number"
+                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                value={thresholds.heap_free_bytes_min}
+                onChange={(e) =>
+                  setThresholds({
+                    ...thresholds,
+                    heap_free_bytes_min: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+
+            <label className="block text-sm">
+              <span className="mb-1 block text-slate-400">Wi-Fi RSSI minimum (dBm)</span>
+              <input
+                type="number"
+                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                value={thresholds.wifi_rssi_dbm_min}
+                onChange={(e) =>
+                  setThresholds({
+                    ...thresholds,
+                    wifi_rssi_dbm_min: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+
+            <label className="block text-sm">
+              <span className="mb-1 block text-slate-400">Battery voltage minimum (mV)</span>
+              <input
+                type="number"
+                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                value={thresholds.battery_voltage_mv_min}
+                onChange={(e) =>
+                  setThresholds({
+                    ...thresholds,
+                    battery_voltage_mv_min: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+
+            <label className="block text-sm">
+              <span className="mb-1 block text-slate-400">CPU temperature maximum (°C)</span>
+              <input
+                type="number"
+                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+                value={thresholds.cpu_temperature_c_max}
+                onChange={(e) =>
+                  setThresholds({
+                    ...thresholds,
+                    cpu_temperature_c_max: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={savingThresholds}
+                onClick={async () => {
+                  setSavingThresholds(true);
+                  setThresholdError(null);
+                  try {
+                    await api.updateThresholds({
+                      heap_free_bytes_min: thresholds.heap_free_bytes_min,
+                      wifi_rssi_dbm_min: thresholds.wifi_rssi_dbm_min,
+                      battery_voltage_mv_min: thresholds.battery_voltage_mv_min,
+                      cpu_temperature_c_max: thresholds.cpu_temperature_c_max,
+                    });
+                    await load();
+                    setThresholdError(null);
+                  } catch (e) {
+                    setThresholdError(
+                      e instanceof Error ? e.message : "Failed to save threshold settings"
+                    );
+                  } finally {
+                    setSavingThresholds(false);
+                  }
+                }}
+                className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {savingThresholds ? "Saving..." : "Save thresholds"}
+              </button>
+              {thresholds.updated_at && (
+                <span className="text-xs text-slate-500">
+                  Last updated {new Date(thresholds.updated_at).toLocaleString()}
+                </span>
+              )}
+            </div>
+            {thresholdError && (
+              <p className="text-xs text-red-300">
+                {thresholdError} — threshold save failed, please retry.
+              </p>
+            )}
+          </section>
         )}
       </main>
     </div>

@@ -30,7 +30,6 @@ interface Props {
     heap_free_bytes_min: number;
     wifi_rssi_dbm_min: number;
     battery_voltage_mv_min: number;
-    battery_level_pct_min: number;
     cpu_temperature_c_max: number;
   };
 }
@@ -137,14 +136,6 @@ export function DeviceChart({ device, metrics, thresholds }: Props) {
           color="#f59e0b"
           threshold={thresholds.battery_voltage_mv_min}
           thresholdLabel={`Red region: below ${thresholds.battery_voltage_mv_min} mV`}
-        />
-        <MetricChart
-          title="Battery level"
-          labels={labels}
-          values={metrics.map((m) => m.battery_level_pct)}
-          color="#f97316"
-          threshold={thresholds.battery_level_pct_min}
-          thresholdLabel={`Red region: below ${thresholds.battery_level_pct_min}%`}
         />
         <MetricChart
           title="CPU temperature"

@@ -2,7 +2,14 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
 
-from fleet.models import Cohort, CrashReport, Device, FirmwareRelease, HeartbeatMetric
+from fleet.models import (
+    Cohort,
+    CrashReport,
+    Device,
+    FirmwareRelease,
+    HeartbeatMetric,
+    TelemetryThresholdConfig,
+)
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -67,7 +74,6 @@ class HeartbeatSerializer(serializers.ModelSerializer):
             "heap_min_free_bytes",
             "wifi_rssi_dbm",
             "battery_voltage_mv",
-            "battery_level_pct",
             "cpu_temperature_c",
         )
 
@@ -104,3 +110,16 @@ class FirmwareReleaseSerializer(serializers.ModelSerializer):
             "is_active",
             "created_at",
         )
+
+
+class TelemetryThresholdConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TelemetryThresholdConfig
+        fields = (
+            "heap_free_bytes_min",
+            "wifi_rssi_dbm_min",
+            "battery_voltage_mv_min",
+            "cpu_temperature_c_max",
+            "updated_at",
+        )
+        read_only_fields = ("updated_at",)
