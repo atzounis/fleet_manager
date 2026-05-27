@@ -47,6 +47,8 @@ def flush_heartbeats_to_db(batch_size: int = 500) -> int:
                 heap_min_free_bytes=int(payload["heap_min_free"]),
                 wifi_rssi_dbm=int(payload["wifi_rssi"]),
                 battery_voltage_mv=_optional_int(payload.get("battery_mv")),
+                battery_level_pct=_optional_battery_pct(payload.get("battery_pct")),
+                cpu_temperature_c=_optional_cpu_temp(payload.get("cpu_temp_c")),
             )
         )
 
@@ -74,3 +76,22 @@ def _optional_int(value) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _optional_battery_pct(value) -> int | None:
+    if value is None:
+        return None
+    parsed = int(value)
+    if parsed < 0 or parsed > 100:
+        return None
+    return parsed
+
+
+def _optional_cpu_temp(value) -> int | None:
+    if value is None:
+        return None
+    parsed = int(value)
+    # Device may send sentinel values for unsupported sensors.
+    if parsed <= -100 or parsed >= 200:
+        return None
+    return parsed

@@ -62,7 +62,7 @@ class CrashReportView(View):
 
 @method_decorator(csrf_exempt, name="dispatch")
 class HeartbeatView(View):
-    """POST CBOR telemetry: heap, RSSI, battery."""
+    """POST CBOR telemetry: heap, RSSI, battery, and optional CPU thermals."""
 
     def post(self, request):
         device_id_raw = request.headers.get("X-Device-Id") or request.GET.get("device_id")

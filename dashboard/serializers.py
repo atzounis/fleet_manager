@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.utils import timezone
 from rest_framework import serializers
 
 from fleet.models import Cohort, CrashReport, Device, FirmwareRelease, HeartbeatMetric
@@ -13,6 +15,10 @@ class CohortSerializer(serializers.ModelSerializer):
 
 class DeviceSerializer(serializers.ModelSerializer):
     cohort_name = serializers.CharField(source="cohort.name", read_only=True, default=None)
+    is_online = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    seconds_since_last_seen = serializers.SerializerMethodField()
+    offline_after_seconds = serializers.SerializerMethodField()
 
     class Meta:
         model = Device
@@ -24,8 +30,31 @@ class DeviceSerializer(serializers.ModelSerializer):
             "cohort",
             "cohort_name",
             "last_seen_at",
+            "is_online",
+            "status",
+            "seconds_since_last_seen",
+            "offline_after_seconds",
             "created_at",
         )
+
+    def get_is_online(self, obj: Device) -> bool:
+        if not obj.last_seen_at:
+            return False
+        stale_cutoff = timezone.now() - timezone.timedelta(
+            seconds=settings.HEARTBEAT_ONLINE_WINDOW_SECONDS
+        )
+        return obj.last_seen_at >= stale_cutoff
+
+    def get_status(self, obj: Device) -> str:
+        return "online" if self.get_is_online(obj) else "offline"
+
+    def get_seconds_since_last_seen(self, obj: Device) -> int | None:
+        if not obj.last_seen_at:
+            return None
+        return max(0, int((timezone.now() - obj.last_seen_at).total_seconds()))
+
+    def get_offline_after_seconds(self, obj: Device) -> int:
+        return settings.HEARTBEAT_ONLINE_WINDOW_SECONDS
 
 
 class HeartbeatSerializer(serializers.ModelSerializer):
@@ -38,6 +67,8 @@ class HeartbeatSerializer(serializers.ModelSerializer):
             "heap_min_free_bytes",
             "wifi_rssi_dbm",
             "battery_voltage_mv",
+            "battery_level_pct",
+            "cpu_temperature_c",
         )
 
 
