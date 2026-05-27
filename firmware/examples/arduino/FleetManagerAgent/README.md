@@ -72,4 +72,14 @@ HW 1.0  FW 1.0.0
 - Dashboard: http://localhost:61294 — new device appears within ~60s
 - Or API: `curl http://localhost:52841/api/v1/dashboard/devices/`
 
-Assign the device to cohort `stable` in Django admin to test OTA (after registering a `FirmwareRelease`).
+## OTA updates
+
+The sketch polls `/api/v1/agent/ota-check/` about every 5 minutes and applies updates with `HTTPUpdate` when the dashboard queues a deployment.
+
+1. Export **`FleetManagerAgent.ino.bin`** (see root `README.md` → *Generate OTA binary locally*).
+2. Open the dashboard **Firmware** tab → **Deploy OTA Update**.
+3. Upload the `.bin`, enter version/HW (must match `secrets.h`), select target devices, click **Send OTA**.
+
+Do **not** upload `bootloader.bin`, `partitions.bin`, or `merged.bin` for OTA — app image only.
+
+Cohort-based rollouts via Django admin still work for devices assigned to a cohort.
