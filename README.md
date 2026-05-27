@@ -356,8 +356,27 @@ cp firmware/examples/arduino/FleetManagerAgent8266/secrets.example.h \
 1. Install board package **esp8266** by ESP8266 Community (Boards Manager).
 2. Open `firmware/examples/arduino/FleetManagerAgent8266/FleetManagerAgent8266.ino`.
 3. Select your board (e.g. **LOLIN(WEMOS) D1 R2 & mini**) and an **OTA-capable** flash size.
-4. Upload; Serial Monitor @ **115200** — expect `HW 8266  FW 1.0.0` and heartbeats.
+4. Upload; Serial Monitor @ **115200** — expect `HW 8266` and heartbeats.
 5. For OTA: export **`FleetManagerAgent8266.ino.bin`**, deploy with **HW version `8266`** in the Firmware tab.
+
+Example output:
+
+```text
+=== Fleet Manager Arduino Agent (ESP8266) ===
+Chip ID: 0x755901
+Device ID: 600194755901
+Device Name: esp8266-device
+HW 8266 FW 1.0.1
+API: http://192.168.68.108:52841
+OTA poll every 300 s
+WiFi connecting to Argo_IoT........
+WiFi OK
+IP=192.168.68.123 RSSI=-60
+[crash-report] accepted
+[heartbeat] OK heap=49248 min_heap=49248 rssi=-59 batt=0 mV
+[ota] checking for update (fw 1.0.1)...
+[ota] no update
+```
 
 Full guide: [`firmware/examples/arduino/FleetManagerAgent8266/README.md`](firmware/examples/arduino/FleetManagerAgent8266/README.md)
 
