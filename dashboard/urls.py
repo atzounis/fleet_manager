@@ -23,6 +23,11 @@ urlpatterns = [
         views.OtaDeploymentListCreateView.as_view(),
         name="ota-deployment-list-create",
     ),
+    path(
+        "ota/deployments/<int:deployment_id>/",
+        views.OtaDeploymentDetailView.as_view(),
+        name="ota-deployment-detail",
+    ),
     path("cohorts/", views.CohortListView.as_view(), name="cohort-list"),
     path("thresholds/", views.TelemetryThresholdConfigView.as_view(), name="thresholds"),
 ]

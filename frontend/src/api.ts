@@ -1,8 +1,21 @@
 const API_BASE = "/api/v1/dashboard";
 
+async function parseErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = (await res.json()) as { detail?: string; error?: string };
+    if (typeof data.detail === "string" && data.detail.trim()) return data.detail;
+    if (typeof data.error === "string" && data.error.trim()) return data.error;
+  } catch {
+    // Ignore JSON parse failures and use fallback.
+  }
+  return fallback;
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
-  if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
+  if (!res.ok) {
+    throw new Error(await parseErrorMessage(res, `API ${res.status}: ${path}`));
+  }
   return res.json() as Promise<T>;
 }
 
@@ -139,8 +152,25 @@ export const api = {
       method: "POST",
       body,
     });
-    if (!res.ok) throw new Error(`API ${res.status}: /ota/deployments/`);
+    if (!res.ok) {
+      throw new Error(
+        await parseErrorMessage(res, `API ${res.status}: /ota/deployments/`)
+      );
+    }
     return (await res.json()) as OtaDeployment;
+  },
+  deleteOtaDeployment: async (deploymentId: number) => {
+    const res = await fetch(`${API_BASE}/ota/deployments/${deploymentId}/`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      throw new Error(
+        await parseErrorMessage(
+          res,
+          `API ${res.status}: /ota/deployments/${deploymentId}/`
+        )
+      );
+    }
   },
   thresholds: () => fetchJson<ThresholdConfig>("/thresholds/"),
   updateThresholds: async (payload: Omit<ThresholdConfig, "updated_at">) => {
@@ -149,7 +179,9 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`API ${res.status}: /thresholds/`);
+    if (!res.ok) {
+      throw new Error(await parseErrorMessage(res, `API ${res.status}: /thresholds/`));
+    }
     return (await res.json()) as ThresholdConfig;
   },
   updateDeviceLabel: async (deviceId: string, label: string) => {
@@ -158,7 +190,11 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ label }),
     });
-    if (!res.ok) throw new Error(`API ${res.status}: /devices/${deviceId}/label/`);
+    if (!res.ok) {
+      throw new Error(
+        await parseErrorMessage(res, `API ${res.status}: /devices/${deviceId}/label/`)
+      );
+    }
     return (await res.json()) as Device;
   },
 };

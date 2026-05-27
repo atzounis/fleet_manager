@@ -6,7 +6,7 @@
  * - Optional human-readable device name
  * - WiFi heartbeat telemetry
  * - CBOR payloads
- * - OTA check support
+ * - OTA check + apply (HTTPUpdate), polls every FLEET_OTA_MS
  * - ESP32 internal temperature reading
  * - Optional battery voltage monitoring
  *
@@ -130,6 +130,20 @@ static void add_agent_headers(HTTPClient &http)
 
     http.addHeader("X-Hw-Version", FLEET_HW_VERSION);
     http.addHeader("X-Fw-Version", FLEET_FW_VERSION);
+}
+
+static String json_escape(const String &value)
+{
+    String out;
+    out.reserve(value.length() + 8);
+    for (size_t i = 0; i < value.length(); i++) {
+        const char c = value.charAt(i);
+        if (c == '\\' || c == '"') {
+            out += '\\';
+        }
+        out += c;
+    }
+    return out;
 }
 
 /* =========================================================
@@ -413,11 +427,11 @@ static void report_ota_status(
 
     String payload =
         String("{\"version\":\"") +
-        version +
+        json_escape(version) +
         "\",\"status\":\"" +
         status +
         "\",\"error\":\"" +
-        error +
+        json_escape(error) +
         "\"}";
 
     int code =
@@ -440,11 +454,20 @@ static bool apply_ota_update(
     const String &ota_url,
     const String &target_version)
 {
+    if (ota_url.isEmpty()) {
+        Serial.println("[ota] update failed: empty download URL");
+        if (!target_version.isEmpty()) {
+            report_ota_status(target_version, "failed", "empty Location URL");
+        }
+        return false;
+    }
+
     Serial.printf(
         "[ota] downloading: %s\n",
         ota_url.c_str());
 
     WiFiClient client;
+    client.setTimeout(30000);
 
     httpUpdate.rebootOnUpdate(false);
 
@@ -503,31 +526,47 @@ static bool check_ota()
         "&fw_version=" +
         FLEET_FW_VERSION;
 
+    Serial.printf(
+        "[ota] checking for update (fw %s)...\n",
+        FLEET_FW_VERSION);
+
     http.begin(url);
 
-    http.addHeader(
-        "X-Device-Id",
-        g_device_id);
+    add_agent_headers(http);
+
+    /* Must not follow 302 — presigned URL is in Location / X-Firmware-Version. */
+    http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+
+    const char *collectKeys[] = {"X-Firmware-Version"};
+    http.collectHeaders(collectKeys, 1);
 
     int code =
         http.GET();
 
     if (code == 302) {
-        String location =
-            http.header("Location");
+        String location = http.getLocation();
+        if (location.isEmpty()) {
+            location = http.header("Location");
+        }
+
+        String target_version =
+            http.header("X-Firmware-Version");
 
         Serial.printf(
             "[ota] update available: %s\n",
             location.c_str());
-
-        String target_version =
-            http.header("X-Firmware-Version");
 
         Serial.printf(
             "[ota] version: %s\n",
             target_version.c_str());
 
         http.end();
+
+        if (location.isEmpty()) {
+            Serial.println(
+                "[ota] 302 without Location — check AWS_S3_PUBLIC_ENDPOINT_URL");
+            return false;
+        }
 
         return apply_ota_update(
             location,
@@ -588,6 +627,10 @@ void setup()
         FLEET_API_HOST,
         FLEET_API_PORT);
 
+    Serial.printf(
+        "OTA poll every %lu s\n",
+        (unsigned long)(FLEET_OTA_MS / 1000UL));
+
     if (!wifi_connect()) {
         return;
     }
@@ -602,6 +645,8 @@ void setup()
 
     g_last_heartbeat = millis();
 
+    /* First OTA check right after boot; loop repeats every FLEET_OTA_MS. */
+    check_ota();
     g_last_ota = millis();
 }
 
@@ -628,11 +673,9 @@ void loop()
         g_last_heartbeat = now;
     }
 
-    if (now - g_last_ota >=
-        FLEET_OTA_MS) {
-
+    if (now - g_last_ota >= FLEET_OTA_MS) {
+        Serial.println("[ota] periodic check");
         check_ota();
-
         g_last_ota = now;
     }
 
