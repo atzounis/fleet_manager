@@ -149,6 +149,10 @@ class FleetEvent(models.Model):
         DEVICE_OFFLINE = "device_offline", "Device offline"
         DEVICE_ONLINE = "device_online", "Device online"
         THRESHOLD_BREACH = "threshold_breach", "Threshold breach"
+        OTA_QUEUED = "ota_queued", "OTA queued"
+        OTA_UPDATED = "ota_updated", "OTA updated"
+        OTA_FAILED = "ota_failed", "OTA failed"
+        OTA_ROLLED_BACK = "ota_rolled_back", "OTA rolled back"
 
     class Severity(models.TextChoices):
         INFO = "info", "Info"
@@ -170,3 +174,66 @@ class FleetEvent(models.Model):
 
     class Meta:
         ordering = ["-event_at"]
+
+
+class OtaDeployment(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        IN_PROGRESS = "in_progress", "In progress"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    firmware = models.ForeignKey(
+        FirmwareRelease,
+        on_delete=models.CASCADE,
+        related_name="ota_deployments",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class OtaDeploymentTarget(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        OFFERED = "offered", "Offered"
+        UPDATED = "updated", "Updated"
+        FAILED = "failed", "Failed"
+        ROLLED_BACK = "rolled_back", "Rolled back"
+
+    deployment = models.ForeignKey(
+        OtaDeployment,
+        on_delete=models.CASCADE,
+        related_name="targets",
+    )
+    device = models.ForeignKey(
+        Device,
+        on_delete=models.CASCADE,
+        related_name="ota_targets",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    last_error = models.CharField(max_length=255, blank=True)
+    offered_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["deployment", "device"],
+                name="uniq_ota_target_per_deployment_device",
+            )
+        ]

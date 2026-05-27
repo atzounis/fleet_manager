@@ -1,11 +1,13 @@
 import cbor2
 from django.db import DatabaseError, OperationalError
 from django.http import HttpResponse, JsonResponse
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from fleet.models import CrashReport, FleetEvent
+from fleet.models import OtaDeployment, OtaDeploymentTarget
 from fleet.services.devices import get_or_create_device, normalize_device_id
 from fleet.services.events import create_event
 from fleet.services.firmware import find_ota_release
@@ -151,3 +153,123 @@ class OtaCheckView(View):
         response["Location"] = url
         response["X-Firmware-Version"] = release.version
         return response
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class OtaReportView(View):
+    """POST OTA outcome updates from device (updated / failed / rolled_back)."""
+
+    def post(self, request):
+        device_id_raw = request.headers.get("X-Device-Id") or request.GET.get("device_id")
+        if not device_id_raw:
+            return JsonResponse({"error": "Missing X-Device-Id header."}, status=400)
+        try:
+            device_id = normalize_device_id(device_id_raw)
+        except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+
+        payload = {}
+        if request.body:
+            if "application/json" in (request.headers.get("Content-Type") or ""):
+                try:
+                    import json
+
+                    payload = json.loads(request.body.decode("utf-8"))
+                except Exception:
+                    return JsonResponse({"error": "Invalid JSON payload."}, status=400)
+            else:
+                try:
+                    payload = cbor2.loads(request.body)
+                except Exception:
+                    return JsonResponse({"error": "Invalid CBOR payload."}, status=400)
+
+        version = str(payload.get("version", "")).strip()
+        status = str(payload.get("status", "")).strip()
+        error = str(payload.get("error", "")).strip()[:255]
+        if not version or status not in {"updated", "failed", "rolled_back"}:
+            return JsonResponse(
+                {"error": "version and status(updated|failed|rolled_back) are required."},
+                status=400,
+            )
+
+        try:
+            device = get_or_create_device(device_id)
+            target = (
+                OtaDeploymentTarget.objects.select_related("deployment", "deployment__firmware")
+                .filter(
+                    device=device,
+                    deployment__firmware__version=version,
+                    deployment__status__in=[
+                        OtaDeployment.Status.PENDING,
+                        OtaDeployment.Status.IN_PROGRESS,
+                    ],
+                )
+                .order_by("-deployment__created_at")
+                .first()
+            )
+            if not target:
+                return JsonResponse({"status": "ignored"}, status=202)
+
+            target.deployment.status = OtaDeployment.Status.IN_PROGRESS
+            target.deployment.save(update_fields=["status", "updated_at"])
+            if status == "updated":
+                target.status = OtaDeploymentTarget.Status.UPDATED
+                target.completed_at = timezone.now()
+                target.last_error = ""
+                create_event(
+                    device=device,
+                    event_type=FleetEvent.EventType.OTA_UPDATED,
+                    severity=FleetEvent.Severity.INFO,
+                    summary=f"OTA update applied: {version}",
+                    details={"deployment_id": target.deployment_id, "version": version},
+                )
+            elif status == "rolled_back":
+                target.status = OtaDeploymentTarget.Status.ROLLED_BACK
+                target.completed_at = timezone.now()
+                target.last_error = error or "Device rolled back to previous firmware"
+                create_event(
+                    device=device,
+                    event_type=FleetEvent.EventType.OTA_ROLLED_BACK,
+                    severity=FleetEvent.Severity.CRITICAL,
+                    summary=f"OTA rolled back: {version}",
+                    details={
+                        "deployment_id": target.deployment_id,
+                        "version": version,
+                        "error": target.last_error,
+                    },
+                )
+            else:
+                target.status = OtaDeploymentTarget.Status.FAILED
+                target.completed_at = timezone.now()
+                target.last_error = error or "OTA update failed"
+                create_event(
+                    device=device,
+                    event_type=FleetEvent.EventType.OTA_FAILED,
+                    severity=FleetEvent.Severity.WARNING,
+                    summary=f"OTA failed: {version}",
+                    details={
+                        "deployment_id": target.deployment_id,
+                        "version": version,
+                        "error": target.last_error,
+                    },
+                )
+            target.save(update_fields=["status", "completed_at", "last_error", "updated_at"])
+
+            remaining = target.deployment.targets.filter(
+                status__in=[OtaDeploymentTarget.Status.PENDING, OtaDeploymentTarget.Status.OFFERED]
+            ).exists()
+            if not remaining:
+                has_failures = target.deployment.targets.filter(
+                    status__in=[
+                        OtaDeploymentTarget.Status.FAILED,
+                        OtaDeploymentTarget.Status.ROLLED_BACK,
+                    ]
+                ).exists()
+                target.deployment.status = (
+                    OtaDeployment.Status.FAILED if has_failures else OtaDeployment.Status.COMPLETED
+                )
+                target.deployment.save(update_fields=["status", "updated_at"])
+        except (DatabaseError, OperationalError):
+            return _service_unavailable()
+
+        return JsonResponse({"status": "ok"})

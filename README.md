@@ -369,7 +369,7 @@ Dashboard views from a local run:
 
 ![Fleet Manager dashboard overview](images/platform1.png)
 ![Fleet Manager events and threshold settings](images/platform2.png)
-![Fleet Manager device health panels](images/platform3.png)
+![Fleet Manager OTA deployment workflow in firmware tab](images/platform3.png)
 
 ### ESP32 gets HTTP 400 on heartbeat or crash-report
 

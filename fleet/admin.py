@@ -7,6 +7,8 @@ from .models import (
     FirmwareRelease,
     FleetEvent,
     HeartbeatMetric,
+    OtaDeployment,
+    OtaDeploymentTarget,
     TelemetryThresholdConfig,
 )
 
@@ -72,3 +74,16 @@ class FleetEventAdmin(admin.ModelAdmin):
     list_display = ("event_at", "device", "event_type", "severity", "summary")
     list_filter = ("event_type", "severity")
     search_fields = ("summary", "device__device_id")
+
+
+@admin.register(OtaDeployment)
+class OtaDeploymentAdmin(admin.ModelAdmin):
+    list_display = ("id", "firmware", "status", "created_at", "updated_at")
+    list_filter = ("status",)
+
+
+@admin.register(OtaDeploymentTarget)
+class OtaDeploymentTargetAdmin(admin.ModelAdmin):
+    list_display = ("id", "deployment", "device", "status", "updated_at")
+    list_filter = ("status",)
+    search_fields = ("device__device_id",)

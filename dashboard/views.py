@@ -1,3 +1,6 @@
+import json
+import uuid
+
 from django.conf import settings
 from django.db.models import Count, Q
 from django.utils.decorators import method_decorator
@@ -15,8 +18,12 @@ from fleet.models import (
     FleetEvent,
     FirmwareRelease,
     HeartbeatMetric,
+    OtaDeployment,
+    OtaDeploymentTarget,
     TelemetryThresholdConfig,
 )
+from fleet.services.events import create_event
+from fleet.services.storage import StorageError, upload_bytes
 
 from .serializers import (
     CohortSerializer,
@@ -25,6 +32,7 @@ from .serializers import (
     FirmwareReleaseSerializer,
     FleetEventSerializer,
     HeartbeatSerializer,
+    OtaDeploymentSerializer,
     TelemetryThresholdConfigSerializer,
 )
 
@@ -147,6 +155,98 @@ class FirmwareListView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         return FirmwareRelease.objects.select_related("cohort").order_by("-created_at")
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class OtaDeploymentListCreateView(APIView):
+    authentication_classes: list[type[SessionAuthentication]] = []
+
+    def get(self, request):
+        qs = OtaDeployment.objects.select_related("firmware").prefetch_related(
+            "targets__device"
+        )
+        return Response({"count": qs.count(), "results": OtaDeploymentSerializer(qs, many=True).data})
+
+    def post(self, request):
+        firmware_file = request.FILES.get("firmware")
+        version = str(request.data.get("version", "")).strip()
+        hw_version = str(request.data.get("hw_version", "")).strip() or "1.0"
+        raw_device_ids = request.data.get("device_ids")
+
+        if not firmware_file:
+            return Response({"detail": "firmware binary file is required"}, status=400)
+        if not version:
+            return Response({"detail": "version is required"}, status=400)
+        if not raw_device_ids:
+            return Response({"detail": "device_ids is required"}, status=400)
+
+        try:
+            device_ids = json.loads(raw_device_ids)
+        except Exception:
+            return Response({"detail": "device_ids must be a JSON array"}, status=400)
+        if not isinstance(device_ids, list) or not device_ids:
+            return Response({"detail": "device_ids must be a non-empty array"}, status=400)
+
+        devices = list(Device.objects.filter(device_id__in=device_ids))
+        if len(devices) != len(set(device_ids)):
+            found = {d.device_id for d in devices}
+            missing = [x for x in device_ids if x not in found]
+            return Response({"detail": f"unknown device ids: {', '.join(missing)}"}, status=400)
+
+        # FirmwareRelease requires cohort; use/create a dedicated manual OTA cohort.
+        cohort, _ = Cohort.objects.get_or_create(
+            name="manual-ota",
+            defaults={"description": "Per-device OTA deployments from dashboard"},
+        )
+
+        payload = firmware_file.read()
+        object_key = f"firmware/manual/{version}/{uuid.uuid4().hex}.bin"
+        try:
+            upload_bytes(object_key, payload, content_type="application/octet-stream")
+        except StorageError:
+            return Response({"detail": "Object storage unavailable"}, status=503)
+
+        release = FirmwareRelease.objects.create(
+            version=version,
+            hw_version=hw_version,
+            cohort=cohort,
+            s3_key=object_key,
+            file_size_bytes=len(payload),
+            is_active=True,
+        )
+        deployment = OtaDeployment.objects.create(
+            firmware=release,
+            status=OtaDeployment.Status.PENDING,
+        )
+        OtaDeploymentTarget.objects.bulk_create(
+            [
+                OtaDeploymentTarget(
+                    deployment=deployment,
+                    device=device,
+                    status=OtaDeploymentTarget.Status.PENDING,
+                )
+                for device in devices
+            ]
+        )
+        for device in devices:
+            create_event(
+                device=device,
+                event_type=FleetEvent.EventType.OTA_QUEUED,
+                severity=FleetEvent.Severity.INFO,
+                summary=f"OTA queued: {version}",
+                details={
+                    "kind": "ota_queued",
+                    "deployment_id": deployment.id,
+                    "version": version,
+                    "hw_version": hw_version,
+                },
+            )
+        deployment = (
+            OtaDeployment.objects.select_related("firmware")
+            .prefetch_related("targets__device")
+            .get(pk=deployment.pk)
+        )
+        return Response(OtaDeploymentSerializer(deployment).data, status=201)
 
 
 class CohortListView(generics.ListAPIView):

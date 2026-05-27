@@ -6,6 +6,7 @@ import {
   FleetStats,
   FirmwareRelease,
   Heartbeat,
+  OtaDeployment,
   ThresholdConfig,
 } from "./api";
 import { DeviceChart } from "./components/DeviceChart";
@@ -32,11 +33,18 @@ export default function App() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [events, setEvents] = useState<FleetEvent[]>([]);
   const [firmware, setFirmware] = useState<FirmwareRelease[]>([]);
+  const [deployments, setDeployments] = useState<OtaDeployment[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<Heartbeat[]>([]);
   const [tab, setTab] = useState<Tab>("devices");
   const [thresholds, setThresholds] = useState<ThresholdConfig | null>(null);
   const [savingThresholds, setSavingThresholds] = useState(false);
+  const [otaVersion, setOtaVersion] = useState("");
+  const [otaHwVersion, setOtaHwVersion] = useState("1.0");
+  const [otaFile, setOtaFile] = useState<File | null>(null);
+  const [otaTargets, setOtaTargets] = useState<string[]>([]);
+  const [otaSending, setOtaSending] = useState(false);
+  const [otaError, setOtaError] = useState<string | null>(null);
   const [eventDeviceFilter, setEventDeviceFilter] = useState<string>("all");
   const [eventHoursFilter, setEventHoursFilter] = useState<number>(24);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +59,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const [s, d, c, f] = await Promise.all([
+      const [s, d, c, f, od] = await Promise.all([
         api.stats(),
         api.devices(),
         api.events({
@@ -59,11 +67,13 @@ export default function App() {
           hours: eventHoursFilter,
         }),
         api.firmware(),
+        api.otaDeployments(),
       ]);
       setStats(s);
       setDevices(d.results);
       setEvents(c.results);
       setFirmware(f.results);
+      setDeployments(od.results);
       setThresholds((current) => ({
         heap_free_bytes_min: s.thresholds.heap_free_bytes_min,
         wifi_rssi_dbm_min: s.thresholds.wifi_rssi_dbm_min,
@@ -98,6 +108,13 @@ export default function App() {
   }, [selectedId]);
 
   const selected = devices.find((d) => d.device_id === selectedId);
+  const toggleOtaTarget = (deviceId: string) => {
+    setOtaTargets((current) =>
+      current.includes(deviceId)
+        ? current.filter((id) => id !== deviceId)
+        : [...current, deviceId]
+    );
+  };
 
   return (
     <div className="min-h-screen">
@@ -296,26 +313,163 @@ export default function App() {
         )}
 
         {tab === "firmware" && !loading && (
-          <table className="w-full text-left text-sm">
-            <thead className="text-slate-500">
-              <tr>
-                <th className="pb-2">Version</th>
-                <th className="pb-2">HW</th>
-                <th className="pb-2">Cohort</th>
-                <th className="pb-2">Active</th>
-              </tr>
-            </thead>
-            <tbody>
-              {firmware.map((f) => (
-                <tr key={f.id} className="border-t border-slate-800">
-                  <td className="py-2 font-mono">{f.version}</td>
-                  <td className="py-2">{f.hw_version}</td>
-                  <td className="py-2">{f.cohort_name}</td>
-                  <td className="py-2">{f.is_active ? "yes" : "no"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="space-y-6">
+            <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+              <h2 className="text-sm font-medium text-slate-300">Deploy OTA Update</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Upload a firmware binary, select target devices, and queue deployment.
+              </p>
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <input
+                  type="text"
+                  placeholder="Firmware version (e.g. 1.2.0)"
+                  value={otaVersion}
+                  onChange={(e) => setOtaVersion(e.target.value)}
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                />
+                <input
+                  type="text"
+                  placeholder="HW version (e.g. 1.0)"
+                  value={otaHwVersion}
+                  onChange={(e) => setOtaHwVersion(e.target.value)}
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                />
+                <input
+                  type="file"
+                  accept=".bin,application/octet-stream"
+                  onChange={(e) => setOtaFile(e.target.files?.[0] ?? null)}
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm file:mr-3 file:rounded file:border-0 file:bg-slate-800 file:px-2 file:py-1 file:text-slate-200"
+                />
+              </div>
+
+              <div className="mt-4 rounded-lg border border-slate-800 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs text-slate-400">Target devices ({otaTargets.length} selected)</p>
+                  <button
+                    type="button"
+                    onClick={() => setOtaTargets(devices.map((d) => d.device_id))}
+                    className="text-xs text-emerald-400 hover:text-emerald-300"
+                  >
+                    Select all
+                  </button>
+                </div>
+                <div className="grid max-h-40 gap-2 overflow-y-auto sm:grid-cols-2">
+                  {devices.map((d) => (
+                    <label
+                      key={d.device_id}
+                      className="flex items-center gap-2 rounded border border-slate-800 px-2 py-1 text-xs"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={otaTargets.includes(d.device_id)}
+                        onChange={() => toggleOtaTarget(d.device_id)}
+                      />
+                      <span className="font-mono text-emerald-300">{d.device_id}</span>
+                      <span className="text-slate-500">{d.label || "—"}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={otaSending}
+                  className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={async () => {
+                    if (!otaFile || !otaVersion.trim() || otaTargets.length === 0) {
+                      setOtaError("Version, firmware file, and at least one target are required.");
+                      return;
+                    }
+                    setOtaSending(true);
+                    setOtaError(null);
+                    try {
+                      await api.createOtaDeployment({
+                        firmware: otaFile,
+                        version: otaVersion.trim(),
+                        hwVersion: otaHwVersion.trim() || "1.0",
+                        deviceIds: otaTargets,
+                      });
+                      setOtaVersion("");
+                      setOtaFile(null);
+                      setOtaTargets([]);
+                      await load();
+                    } catch (e) {
+                      setOtaError(
+                        e instanceof Error ? e.message : "Failed to queue OTA deployment"
+                      );
+                    } finally {
+                      setOtaSending(false);
+                    }
+                  }}
+                >
+                  {otaSending ? "Sending..." : "Send OTA"}
+                </button>
+                {otaError && <p className="text-xs text-red-300">{otaError}</p>}
+              </div>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-medium text-slate-400">Firmware Releases</h3>
+              <table className="w-full text-left text-sm">
+                <thead className="text-slate-500">
+                  <tr>
+                    <th className="pb-2">Version</th>
+                    <th className="pb-2">HW</th>
+                    <th className="pb-2">Cohort</th>
+                    <th className="pb-2">Active</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {firmware.map((f) => (
+                    <tr key={f.id} className="border-t border-slate-800">
+                      <td className="py-2 font-mono">{f.version}</td>
+                      <td className="py-2">{f.hw_version}</td>
+                      <td className="py-2">{f.cohort_name}</td>
+                      <td className="py-2">{f.is_active ? "yes" : "no"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-medium text-slate-400">Recent Deployments</h3>
+              <div className="space-y-3">
+                {deployments.map((dep) => (
+                  <article
+                    key={dep.id}
+                    className="rounded-xl border border-slate-800 bg-slate-900/50 p-3"
+                  >
+                    <div className="flex flex-wrap items-center gap-3 text-xs">
+                      <span className="rounded bg-slate-800 px-2 py-0.5">#{dep.id}</span>
+                      <span className="font-mono text-emerald-300">{dep.firmware_version}</span>
+                      <span className="text-slate-400">hw {dep.firmware_hw_version}</span>
+                      <span className="rounded border border-slate-700 px-2 py-0.5">
+                        {dep.status}
+                      </span>
+                      <span className="text-slate-500">
+                        {new Date(dep.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {dep.targets.map((t) => (
+                        <span
+                          key={`${dep.id}-${t.device_id}`}
+                          className="rounded border border-slate-700 px-2 py-0.5 text-[11px]"
+                        >
+                          {t.device_id}: {t.status}
+                        </span>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+                {deployments.length === 0 && (
+                  <p className="text-sm text-slate-500">No OTA deployments yet.</p>
+                )}
+              </div>
+            </section>
+          </div>
         )}
 
         {tab === "settings" && !loading && thresholds && (

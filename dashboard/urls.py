@@ -18,6 +18,11 @@ urlpatterns = [
     path("crashes/", views.CrashListView.as_view(), name="crash-list"),
     path("events/", views.EventListView.as_view(), name="event-list"),
     path("firmware/", views.FirmwareListView.as_view(), name="firmware-list"),
+    path(
+        "ota/deployments/",
+        views.OtaDeploymentListCreateView.as_view(),
+        name="ota-deployment-list-create",
+    ),
     path("cohorts/", views.CohortListView.as_view(), name="cohort-list"),
     path("thresholds/", views.TelemetryThresholdConfigView.as_view(), name="thresholds"),
 ]
