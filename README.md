@@ -179,6 +179,7 @@ fleet_manager/
 ├── firmware/
 │   ├── sdk/              # Shared C headers (reference)
 │   └── examples/         # Arduino + ESP-IDF ready-to-flash agents
+├── images/               # Photos for README (Arduino / ESP32 setup)
 ├── scripts/              # stop-local.sh, simulate_heartbeat.py
 ├── docker/               # Gunicorn entrypoint, nginx config for frontend image
 ├── scripts/              # stop-local.sh — free ports before compose up
@@ -208,10 +209,19 @@ docker compose exec web python manage.py seed_demo
 | Dashboard (nginx + React) | http://localhost:61294 |
 | API (Gunicorn) | http://localhost:52841 |
 | Django admin | http://localhost:52841/admin/ |
-| MinIO API | http://localhost:38472 |
-| MinIO console | http://localhost:41908 (minioadmin / minioadmin) |
+| MinIO API (S3) | http://localhost:38472 |
+| MinIO console | http://localhost:41908 |
 | Postgres | `localhost:47291` |
 | Redis | `localhost:58163` |
+
+**MinIO login** (console at port **41908** — not `admin`):
+
+| Field | Value |
+|-------|--------|
+| Username | `minioadmin` |
+| Password | `minioadmin` |
+
+Django and Celery use the same keys via `.env` (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`). The `minio-init` container creates the **`fleet-manager`** bucket on first stack start.
 
 Stack: **Gunicorn** (not `runserver`), Postgres, Redis, MinIO, Celery worker + beat, built frontend behind nginx. Host ports are configurable in `.env` to avoid local clashes.
 
@@ -306,7 +316,32 @@ cp firmware/examples/arduino/FleetManagerAgent/secrets.example.h \
 # Edit secrets.h: Wi-Fi + FLEET_API_HOST=<your LAN IP>
 ```
 
-Open `firmware/examples/arduino/FleetManagerAgent/FleetManagerAgent.ino` in Arduino IDE → upload → Serial @ 115200.
+1. Connect the ESP32 to your computer with USB (power switch **ON**). A WROVER module is shown below; any ESP32 dev board works.
+
+   ![ESP32-WROVER-B connected over USB](images/esp32-wrover-usb.jpg)
+
+2. In [Arduino IDE](https://www.arduino.cc/) 2.x, open `firmware/examples/arduino/FleetManagerAgent/FleetManagerAgent.ino`, select **ESP32 Wrover Module** (or your board), choose the serial port, and click **Upload**.
+
+   ![Arduino IDE compiling and flashing the Fleet Manager agent](images/arduino-ide-upload.jpg)
+
+3. Open **Serial Monitor** @ **115200** baud. On success you should see the device ID (Wi‑Fi MAC), API URL, Wi‑Fi join, then heartbeats returning **HTTP 200**.
+
+   ![Serial Monitor showing heartbeats accepted by the platform](images/arduino-serial-monitor.jpg)
+
+Example output:
+
+```text
+=== Fleet Manager Arduino Agent ===
+Device ID: 30aea4c2cdc4 (Wi-Fi MAC)
+HW 1.0  FW 1.0.0
+API: http://192.168.68.108:52841
+WiFi OK, IP=192.168.68.110 RSSI=-49
+[crash-report] HTTP 202 accepted
+[heartbeat] OK heap=227512 min_heap=223344 rssi=-50 batt=0 mV
+[heartbeat] HTTP 200 (59 bytes CBOR)
+```
+
+More detail: [`firmware/examples/arduino/FleetManagerAgent/README.md`](firmware/examples/arduino/FleetManagerAgent/README.md)
 
 ### ESP-IDF / FreeRTOS
 
@@ -327,6 +362,29 @@ python3 scripts/simulate_heartbeat.py --device-id 240ac4dead01
 Open http://localhost:61294 — allow ~60s for Redis flush, or check `curl http://localhost:52841/api/v1/dashboard/devices/`.
 
 **Important:** ESP32 must use your PC's **LAN IP** (e.g. `192.168.1.42:52841`), not `127.0.0.1`.
+
+### ESP32 gets HTTP 400 on heartbeat or crash-report
+
+If Serial shows `[heartbeat] HTTP 400` or `[crash-report] HTTP 400` while Wi‑Fi is connected, Django is usually rejecting the **Host** header. The device calls `http://<your-lan-ip>:52841`, so that IP must be listed in `ALLOWED_HOSTS`.
+
+1. Find your machine's LAN IP (macOS: **System Settings → Network**, or `ipconfig getifaddr en0`).
+2. Add it to `.env` (comma-separated, no spaces):
+
+   ```bash
+   ALLOWED_HOSTS=localhost,127.0.0.1,web,192.168.68.108
+   ```
+
+   `.env.example` includes a placeholder IP for this reason.
+
+3. Recreate the web container so the env is picked up:
+
+   ```bash
+   docker compose up -d web
+   ```
+
+4. Reset the ESP32. You should see `[heartbeat] HTTP 200` and, if test crash is enabled, `[crash-report] HTTP 202`.
+
+A **400** with a short HTML body is typical for `DisallowedHost`. A **400** with JSON like `Missing X-Device-Id` means the host is allowed but headers or CBOR are wrong — check `X-Device-Id` and that `fleet_cbor.h` uses `extern "C"` for Arduino builds.
 
 ## Agent API reference
 

@@ -55,7 +55,7 @@ bool fleet_http_send_heartbeat(void)
         (uint32_t)heap_caps_get_free_size(MALLOC_CAP_DEFAULT),
         (uint32_t)heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT),
         rssi,
-        3700);
+        0); /* 0 = unknown; set from ADC in your product firmware */
 
     char url[160];
     snprintf(url, sizeof(url), "%s/api/v1/agent/heartbeat/", CONFIG_FLEET_API_BASE_URL);
