@@ -316,7 +316,7 @@ cp firmware/examples/arduino/FleetManagerAgent/secrets.example.h \
 # Edit secrets.h: Wi-Fi + FLEET_API_HOST=<your LAN IP>
 ```
 
-1. Connect the ESP32 to your computer with USB (power switch **ON**). A WROVER module is shown below; any ESP32 dev board works.
+1. Connect the ESP32 to your computer with USB (if there is a power switch, make sure it is set to **OFF**). A WROVER module is shown below; any ESP32 dev board works.
 
    ![ESP32-WROVER-B connected over USB](images/esp32-wrover-usb.jpg)
 
