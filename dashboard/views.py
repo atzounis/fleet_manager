@@ -12,6 +12,7 @@ from fleet.models import (
     Cohort,
     CrashReport,
     Device,
+    FleetEvent,
     FirmwareRelease,
     HeartbeatMetric,
     TelemetryThresholdConfig,
@@ -22,6 +23,7 @@ from .serializers import (
     CrashReportSerializer,
     DeviceSerializer,
     FirmwareReleaseSerializer,
+    FleetEventSerializer,
     HeartbeatSerializer,
     TelemetryThresholdConfigSerializer,
 )
@@ -85,6 +87,28 @@ class DeviceListView(generics.ListAPIView):
         return qs
 
 
+@method_decorator(csrf_exempt, name="dispatch")
+class DeviceLabelUpdateView(APIView):
+    authentication_classes: list[type[SessionAuthentication]] = []
+
+    def patch(self, request, device_id: str):
+        return self._save(request, device_id)
+
+    def post(self, request, device_id: str):
+        return self._save(request, device_id)
+
+    def _save(self, request, device_id: str):
+        label = request.data.get("label")
+        if not isinstance(label, str):
+            return Response({"detail": "label must be a string"}, status=400)
+        device = Device.objects.filter(device_id=device_id).first()
+        if not device:
+            return Response({"detail": "device not found"}, status=404)
+        device.label = label.strip()
+        device.save(update_fields=["label"])
+        return Response(DeviceSerializer(device).data)
+
+
 class DeviceMetricsView(generics.ListAPIView):
     serializer_class = HeartbeatSerializer
 
@@ -98,6 +122,24 @@ class DeviceMetricsView(generics.ListAPIView):
 class CrashListView(generics.ListAPIView):
     serializer_class = CrashReportSerializer
     queryset = CrashReport.objects.select_related("device").order_by("-received_at")
+
+
+class EventListView(generics.ListAPIView):
+    serializer_class = FleetEventSerializer
+
+    def get_queryset(self):
+        qs = FleetEvent.objects.select_related("device").order_by("-event_at")
+        device_id = self.request.query_params.get("device_id")
+        if device_id:
+            qs = qs.filter(device_id=device_id)
+        hours = self.request.query_params.get("hours")
+        if hours:
+            try:
+                h = max(1, min(int(hours), 24 * 30))
+                qs = qs.filter(event_at__gte=timezone.now() - timezone.timedelta(hours=h))
+            except ValueError:
+                pass
+        return qs
 
 
 class FirmwareListView(generics.ListCreateAPIView):

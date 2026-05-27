@@ -63,6 +63,16 @@ export interface CrashReport {
   symbolicated_trace: string;
 }
 
+export interface FleetEvent {
+  id: number;
+  event_at: string;
+  event_type: string;
+  severity: "info" | "warning" | "critical";
+  summary: string;
+  details: Record<string, unknown>;
+  device_id: string | null;
+}
+
 export interface FirmwareRelease {
   id: number;
   version: string;
@@ -85,6 +95,13 @@ export const api = {
       `/devices/${deviceId}/metrics/?limit=${limit}`
     ),
   crashes: () => fetchJson<Paginated<CrashReport>>("/crashes/"),
+  events: (params?: { deviceId?: string; hours?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.deviceId) qs.set("device_id", params.deviceId);
+    if (params?.hours) qs.set("hours", String(params.hours));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return fetchJson<Paginated<FleetEvent>>(`/events/${suffix}`);
+  },
   firmware: () => fetchJson<Paginated<FirmwareRelease>>("/firmware/"),
   thresholds: () => fetchJson<ThresholdConfig>("/thresholds/"),
   updateThresholds: async (payload: Omit<ThresholdConfig, "updated_at">) => {
@@ -95,5 +112,14 @@ export const api = {
     });
     if (!res.ok) throw new Error(`API ${res.status}: /thresholds/`);
     return (await res.json()) as ThresholdConfig;
+  },
+  updateDeviceLabel: async (deviceId: string, label: string) => {
+    const res = await fetch(`${API_BASE}/devices/${deviceId}/label/`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label }),
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: /devices/${deviceId}/label/`);
+    return (await res.json()) as Device;
   },
 };

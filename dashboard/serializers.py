@@ -7,6 +7,7 @@ from fleet.models import (
     CrashReport,
     Device,
     FirmwareRelease,
+    FleetEvent,
     HeartbeatMetric,
     TelemetryThresholdConfig,
 )
@@ -123,3 +124,19 @@ class TelemetryThresholdConfigSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("updated_at",)
+
+
+class FleetEventSerializer(serializers.ModelSerializer):
+    device_id = serializers.CharField(source="device.device_id", read_only=True)
+
+    class Meta:
+        model = FleetEvent
+        fields = (
+            "id",
+            "event_at",
+            "event_type",
+            "severity",
+            "summary",
+            "details",
+            "device_id",
+        )
