@@ -343,6 +343,52 @@ WiFi OK, IP=192.168.68.110 RSSI=-49
 
 More detail: [`firmware/examples/arduino/FleetManagerAgent/README.md`](firmware/examples/arduino/FleetManagerAgent/README.md)
 
+### Generate OTA binary locally (Arduino IDE)
+
+Use this when you want to push a new build from the dashboard **Firmware** tab (**Deploy OTA Update**) instead of flashing over USB.
+
+Before exporting, set **Tools → Partition Scheme** to an OTA-capable layout (for example **Default 4MB with spiffs** or **Minimal SPIFFS**). OTA needs enough flash to hold the running app and the incoming image at the same time.
+
+Bump `FLEET_FW_VERSION` in `secrets.h` so the platform treats the build as newer than what devices report today.
+
+#### Arduino IDE 2.0+ (recommended)
+
+1. Open `firmware/examples/arduino/FleetManagerAgent/FleetManagerAgent.ino`.
+2. **Tools → Board** — select your ESP32 board (e.g. **ESP32 Wrover Module**).
+3. **Sketch → Export Compiled Binary** (compiles without uploading).
+4. **Sketch → Show Sketch Folder** (Ctrl+K / Cmd+K).
+5. Open the new `build/` folder, then the board subfolder (e.g. `build/esp32.esp32.esp32wrover/`).
+6. Use **`FleetManagerAgent.ino.bin`** for OTA upload in the dashboard.
+
+#### Arduino IDE 1.8.x
+
+1. Open the sketch and select the board under **Tools → Board**.
+2. **Sketch → Export Compiled Binary** (Ctrl+Alt+S / Cmd+Option+S).
+3. When compilation finishes, **Sketch → Show Sketch Folder**.
+4. On 1.8.x the `.bin` is often next to the `.ino` file; on newer toolchains it is under `build/...` as above.
+
+#### Which `.bin` to upload?
+
+Arduino exports several binaries. For Fleet Manager OTA, upload **only**:
+
+| File | Use for dashboard OTA? |
+|------|-------------------------|
+| `FleetManagerAgent.ino.bin` | **Yes** — application firmware |
+| `FleetManagerAgent.ino.partitions.bin` | No — partition table (only when changing flash layout) |
+| `FleetManagerAgent.ino.bootloader.bin` | No — USB/full flash workflows |
+| `boot_app0.bin` | No |
+| `FleetManagerAgent.ino.merged.bin` | No — full-chip image, not for OTA pull |
+
+Upload **one** file per deployment: `FleetManagerAgent.ino.bin`.
+
+#### Important tips
+
+- **OTA code must be in the binary you ship.** The sketch must include OTA check/apply logic (this repo’s agent does). If you flash a build without OTA support, the next update requires USB again.
+- **Version numbers:** set **Version** in the dashboard to match `FLEET_FW_VERSION` in `secrets.h` (e.g. `1.1.0`). Set **HW version** to match `FLEET_HW_VERSION` (e.g. `1.0`).
+- **First install vs OTA:** use USB **Upload** once to get OTA-capable firmware on the device; after that, use the dashboard for subsequent updates.
+- **Polling interval:** the Arduino agent checks OTA about every **5 minutes** (`FLEET_OTA_MS`). After **Send OTA**, wait for the next poll or reboot the device to trigger sooner.
+- **Presigned URLs:** if OTA download fails from the device, set `AWS_S3_PUBLIC_ENDPOINT_URL` in `.env` to your LAN MinIO API URL (see `.env.example`).
+
 ### ESP-IDF / FreeRTOS
 
 ```bash
@@ -447,8 +493,10 @@ Base path: `/api/v1/dashboard/`
 - `GET /crashes/` — crash reports  
 - `GET /firmware/` — firmware releases  
 - `GET /cohorts/` — rollout cohorts  
+- `GET /ota/deployments/` — OTA deployment history  
+- `POST /ota/deployments/` — upload `.bin`, version, hw version, and target `device_ids` (multipart form)
 
-Assign devices to cohorts in Django admin, then upload firmware binaries to MinIO and register `FirmwareRelease` rows with matching `s3_key`, `hw_version`, and semantic `version`.
+From the dashboard **Firmware** tab you can upload `FleetManagerAgent.ino.bin`, select devices, and queue an update without using Django admin. Cohort-based rollouts via admin still work for devices assigned to a cohort.
 
 ## Firmware SDK
 

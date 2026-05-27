@@ -27,6 +27,7 @@ uint8_t temprature_sens_read();
 
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <HTTPUpdate.h>
 #include <esp_mac.h>
 #include <esp_system.h>
 
@@ -392,6 +393,104 @@ static bool send_test_crash()
  * OTA
  * ========================================================= */
 
+static void report_ota_status(
+    const String &version,
+    const char *status,
+    const String &error)
+{
+    HTTPClient http;
+
+    String url =
+        api_url("/api/v1/agent/ota-report/");
+
+    http.begin(url);
+
+    add_agent_headers(http);
+
+    http.addHeader(
+        "Content-Type",
+        "application/json");
+
+    String payload =
+        String("{\"version\":\"") +
+        version +
+        "\",\"status\":\"" +
+        status +
+        "\",\"error\":\"" +
+        error +
+        "\"}";
+
+    int code =
+        http.POST(payload);
+
+    if (code == 200 || code == 202) {
+        Serial.printf(
+            "[ota-report] %s sent\n",
+            status);
+    } else {
+        Serial.printf(
+            "[ota-report] HTTP %d\n",
+            code);
+    }
+
+    http.end();
+}
+
+static bool apply_ota_update(
+    const String &ota_url,
+    const String &target_version)
+{
+    Serial.printf(
+        "[ota] downloading: %s\n",
+        ota_url.c_str());
+
+    WiFiClient client;
+
+    httpUpdate.rebootOnUpdate(false);
+
+    t_httpUpdate_return result =
+        httpUpdate.update(
+            client,
+            ota_url,
+            FLEET_FW_VERSION);
+
+    if (result == HTTP_UPDATE_OK) {
+        Serial.printf(
+            "[ota] update applied, rebooting to %s\n",
+            target_version.c_str());
+
+        report_ota_status(
+            target_version,
+            "updated",
+            "");
+
+        delay(300);
+        ESP.restart();
+        return true;
+    }
+
+    if (result == HTTP_UPDATE_NO_UPDATES) {
+        Serial.println("[ota] no updates from updater");
+        return true;
+    }
+
+    String err =
+        String("err=") +
+        String(httpUpdate.getLastError());
+
+    Serial.printf(
+        "[ota] update failed: %s (%s)\n",
+        httpUpdate.getLastErrorString().c_str(),
+        err.c_str());
+
+    report_ota_status(
+        target_version,
+        "failed",
+        err);
+
+    return false;
+}
+
 static bool check_ota()
 {
     HTTPClient http;
@@ -414,14 +513,25 @@ static bool check_ota()
         http.GET();
 
     if (code == 302) {
+        String location =
+            http.header("Location");
 
         Serial.printf(
             "[ota] update available: %s\n",
-            http.header("Location").c_str());
+            location.c_str());
+
+        String target_version =
+            http.header("X-Firmware-Version");
 
         Serial.printf(
             "[ota] version: %s\n",
-            http.header("X-Firmware-Version").c_str());
+            target_version.c_str());
+
+        http.end();
+
+        return apply_ota_update(
+            location,
+            target_version);
 
     } else if (code == 204) {
 
@@ -436,7 +546,7 @@ static bool check_ota()
 
     http.end();
 
-    return code == 204 || code == 302;
+    return code == 204;
 }
 
 /* =========================================================
