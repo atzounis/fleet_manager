@@ -43,6 +43,7 @@ class Device(models.Model):
         related_name="devices",
     )
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    is_online_cached = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -140,3 +141,32 @@ class TelemetryThresholdConfig(models.Model):
     class Meta:
         verbose_name = "Telemetry threshold config"
         verbose_name_plural = "Telemetry threshold config"
+
+
+class FleetEvent(models.Model):
+    class EventType(models.TextChoices):
+        CRASH_REPORT = "crash_report", "Crash report"
+        DEVICE_OFFLINE = "device_offline", "Device offline"
+        DEVICE_ONLINE = "device_online", "Device online"
+        THRESHOLD_BREACH = "threshold_breach", "Threshold breach"
+
+    class Severity(models.TextChoices):
+        INFO = "info", "Info"
+        WARNING = "warning", "Warning"
+        CRITICAL = "critical", "Critical"
+
+    device = models.ForeignKey(
+        Device,
+        on_delete=models.CASCADE,
+        related_name="events",
+        null=True,
+        blank=True,
+    )
+    event_type = models.CharField(max_length=32, choices=EventType.choices)
+    severity = models.CharField(max_length=16, choices=Severity.choices)
+    summary = models.CharField(max_length=255)
+    details = models.JSONField(default=dict, blank=True)
+    event_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-event_at"]

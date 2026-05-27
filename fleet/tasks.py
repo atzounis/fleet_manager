@@ -2,6 +2,7 @@ from celery import shared_task
 from django.db import DatabaseError, OperationalError
 
 from fleet.models import CrashReport
+from fleet.services.events import sync_connectivity_events
 from fleet.services.heartbeats import flush_heartbeats_to_db
 from fleet.services.symbolication import symbolicate_crash
 
@@ -9,7 +10,9 @@ from fleet.services.symbolication import symbolicate_crash
 @shared_task
 def flush_heartbeat_stream() -> int:
     try:
-        return flush_heartbeats_to_db()
+        count = flush_heartbeats_to_db()
+        sync_connectivity_events()
+        return count
     except (DatabaseError, OperationalError):
         raise
 

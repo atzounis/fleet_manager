@@ -5,6 +5,7 @@ from .models import (
     CrashReport,
     Device,
     FirmwareRelease,
+    FleetEvent,
     HeartbeatMetric,
     TelemetryThresholdConfig,
 )
@@ -64,3 +65,10 @@ class TelemetryThresholdConfigAdmin(admin.ModelAdmin):
         "cpu_temperature_c_max",
         "updated_at",
     )
+
+
+@admin.register(FleetEvent)
+class FleetEventAdmin(admin.ModelAdmin):
+    list_display = ("event_at", "device", "event_type", "severity", "summary")
+    list_filter = ("event_type", "severity")
+    search_fields = ("summary", "device__device_id")

@@ -5,8 +5,9 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from fleet.models import CrashReport
+from fleet.models import CrashReport, FleetEvent
 from fleet.services.devices import get_or_create_device, normalize_device_id
+from fleet.services.events import create_event
 from fleet.services.firmware import find_ota_release
 from fleet.services.heartbeats import enqueue_heartbeat
 from fleet.services.storage import StorageError, make_object_key, presign_get_url, upload_bytes
@@ -50,6 +51,16 @@ class CrashReportView(View):
                 dump_s3_key=dump_key,
                 elf_s3_key=elf_s3_key,
                 panic_reason=panic_reason[:256],
+            )
+            create_event(
+                device=device,
+                event_type=FleetEvent.EventType.CRASH_REPORT,
+                severity=FleetEvent.Severity.CRITICAL,
+                summary="Crash report received",
+                details={
+                    "panic_reason": panic_reason[:256],
+                    "report_id": report.pk,
+                },
             )
             symbolicate_crash_report.delay(report.pk)
         except (DatabaseError, OperationalError):

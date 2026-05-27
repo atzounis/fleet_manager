@@ -7,6 +7,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from fleet.models import Device, HeartbeatMetric
+from fleet.services.events import current_thresholds, record_threshold_breaches
 
 
 def get_redis() -> redis.Redis:
@@ -52,6 +53,17 @@ def flush_heartbeats_to_db(batch_size: int = 500) -> int:
         )
 
     HeartbeatMetric.objects.bulk_create(metrics, ignore_conflicts=True)
+    devices_by_id = Device.objects.in_bulk({m.device_id for m in metrics}, field_name="device_id")
+    thresholds = current_thresholds()
+    for metric in metrics:
+        device = devices_by_id.get(metric.device_id)
+        if device is None:
+            continue
+        record_threshold_breaches(
+            device=device,
+            heartbeat=metric,
+            thresholds=thresholds,
+        )
     Device.objects.filter(device_id__in={m.device_id for m in metrics}).update(
         last_seen_at=timezone.now()
     )
