@@ -363,6 +363,14 @@ Open http://localhost:61294 — allow ~60s for Redis flush, or check `curl http:
 
 **Important:** ESP32 must use your PC's **LAN IP** (e.g. `192.168.1.42:52841`), not `127.0.0.1`.
 
+### Platform screenshots
+
+Dashboard views from a local run:
+
+![Fleet Manager dashboard overview](images/platform1.png)
+![Fleet Manager telemetry charts](images/platform2.png)
+![Fleet Manager device health panels](images/platform3.png)
+
 ### ESP32 gets HTTP 400 on heartbeat or crash-report
 
 If Serial shows `[heartbeat] HTTP 400` or `[crash-report] HTTP 400` while Wi‑Fi is connected, Django is usually rejecting the **Host** header. The device calls `http://<your-lan-ip>:52841`, so that IP must be listed in `ALLOWED_HOSTS`.
@@ -404,7 +412,6 @@ CBOR map fields:
 - `heap_min_free` (uint) — minimum ever free heap  
 - `wifi_rssi` (int) — RSSI in dBm  
 - `battery_mv` (uint, optional) — battery voltage in millivolts  
-- `battery_pct` (uint, optional) — battery level percentage (`0..100`)  
 - `cpu_temp_c` (int, optional) — CPU temperature in Celsius  
 
 ### Crash report
@@ -462,7 +469,6 @@ Telemetry charts also support configurable red dashed threshold lines:
 - `THRESHOLD_HEAP_FREE_BYTES_MIN`
 - `THRESHOLD_WIFI_RSSI_DBM_MIN`
 - `THRESHOLD_BATTERY_VOLTAGE_MV_MIN`
-- `THRESHOLD_BATTERY_LEVEL_PCT_MIN`
 - `THRESHOLD_CPU_TEMPERATURE_C_MAX`
 
 ## License
