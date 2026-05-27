@@ -1,0 +1,39 @@
+menu "Fleet Manager Agent"
+
+    config FLEET_WIFI_SSID
+        string "Wi-Fi SSID"
+        default "your-wifi-ssid"
+
+    config FLEET_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default "your-wifi-password"
+
+    config FLEET_API_BASE_URL
+        string "Fleet API base URL"
+        default "http://192.168.1.100:52841"
+        help
+            Base URL of the Fleet Manager API (LAN IP of your Docker host, not 127.0.0.1).
+
+    config FLEET_HW_VERSION
+        string "Hardware version"
+        default "1.0"
+
+    config FLEET_FW_VERSION
+        string "Firmware version"
+        default "1.0.0"
+
+    config FLEET_SEND_TEST_CRASH
+        bool "Send simulated crash report on boot"
+        default y
+
+    config FLEET_HEARTBEAT_INTERVAL_SEC
+        int "Heartbeat interval (seconds)"
+        default 60
+        range 10 3600
+
+    config FLEET_OTA_INTERVAL_SEC
+        int "OTA check interval (seconds)"
+        default 300
+        range 60 86400
+
+endmenu
