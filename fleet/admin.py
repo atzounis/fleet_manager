@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import Cohort, CrashReport, Device, FirmwareRelease, HeartbeatMetric
+from .models import (
+    Cohort,
+    CrashReport,
+    Device,
+    FirmwareRelease,
+    HeartbeatMetric,
+    TelemetryThresholdConfig,
+)
 
 
 @admin.register(Cohort)
@@ -45,3 +52,15 @@ class HeartbeatMetricAdmin(admin.ModelAdmin):
 class CrashReportAdmin(admin.ModelAdmin):
     list_display = ("device", "received_at", "status", "panic_reason")
     list_filter = ("status",)
+
+
+@admin.register(TelemetryThresholdConfig)
+class TelemetryThresholdConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "heap_free_bytes_min",
+        "wifi_rssi_dbm_min",
+        "battery_voltage_mv_min",
+        "cpu_temperature_c_max",
+        "updated_at",
+    )

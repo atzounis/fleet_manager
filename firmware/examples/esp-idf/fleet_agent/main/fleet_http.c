@@ -55,8 +55,7 @@ bool fleet_http_send_heartbeat(void)
         (uint32_t)heap_caps_get_free_size(MALLOC_CAP_DEFAULT),
         (uint32_t)heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT),
         rssi,
-        0,   /* battery_mv unknown */
-        255, /* battery_pct unknown */
+        0,    /* battery_mv unknown */
         -127 /* cpu_temp_c unknown */
     );
 

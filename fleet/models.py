@@ -126,3 +126,17 @@ class CrashReport(models.Model):
 
     class Meta:
         ordering = ["-received_at"]
+
+
+class TelemetryThresholdConfig(models.Model):
+    """Global chart threshold configuration editable from dashboard UI."""
+
+    heap_free_bytes_min = models.PositiveIntegerField(default=50000)
+    wifi_rssi_dbm_min = models.SmallIntegerField(default=-75)
+    battery_voltage_mv_min = models.PositiveIntegerField(default=3600)
+    cpu_temperature_c_max = models.SmallIntegerField(default=75)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Telemetry threshold config"
+        verbose_name_plural = "Telemetry threshold config"
