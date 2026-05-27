@@ -9,6 +9,8 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_ota_ops.h"
+#include "esp_system.h"
 #include "esp_wifi.h"
 #include "fleet_http.h"
 #include "freertos/FreeRTOS.h"
@@ -16,6 +18,7 @@
 #include "nvs_flash.h"
 
 static const char *TAG = "fleet_agent";
+static bool s_running_pending_verify = false;
 
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
@@ -84,6 +87,14 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     ESP_LOGI(TAG, "Fleet Manager ESP-IDF agent starting");
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t ota_state;
+    if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK &&
+        ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
+        s_running_pending_verify = true;
+        ESP_LOGW(TAG, "Booted into pending-verify image; will validate after healthy heartbeat");
+    }
+
     wifi_init_sta();
     fleet_http_init();
 
@@ -93,7 +104,22 @@ void app_main(void)
     fleet_http_send_test_crash();
 #endif
 
-    fleet_http_send_heartbeat();
+    bool boot_hb_ok = fleet_http_send_heartbeat();
+    if (s_running_pending_verify) {
+        if (boot_hb_ok) {
+            ESP_ERROR_CHECK(esp_ota_mark_app_valid_cancel_rollback());
+            fleet_http_report_ota_status(CONFIG_FLEET_FW_VERSION, "updated", "");
+            ESP_LOGI(TAG, "OTA image validated and marked stable");
+        } else {
+            fleet_http_report_ota_status(
+                CONFIG_FLEET_FW_VERSION,
+                "rolled_back",
+                "Boot heartbeat failed before validation");
+            ESP_LOGE(TAG, "Heartbeat failed on pending-verify image; restarting for rollback");
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            esp_restart();
+        }
+    }
 
     xTaskCreate(heartbeat_task, "fleet_hb", 8192, NULL, 5, NULL);
     xTaskCreate(ota_task, "fleet_ota", 8192, NULL, 4, NULL);

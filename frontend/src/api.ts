@@ -82,6 +82,26 @@ export interface FirmwareRelease {
   created_at: string;
 }
 
+export interface OtaDeploymentTarget {
+  device_id: string;
+  status: "pending" | "offered" | "updated" | "failed" | "rolled_back";
+  last_error: string;
+  offered_at: string | null;
+  completed_at: string | null;
+  updated_at: string;
+}
+
+export interface OtaDeployment {
+  id: number;
+  status: "pending" | "in_progress" | "completed" | "failed";
+  firmware: number;
+  firmware_version: string;
+  firmware_hw_version: string;
+  created_at: string;
+  updated_at: string;
+  targets: OtaDeploymentTarget[];
+}
+
 export interface Paginated<T> {
   count: number;
   results: T[];
@@ -103,6 +123,25 @@ export const api = {
     return fetchJson<Paginated<FleetEvent>>(`/events/${suffix}`);
   },
   firmware: () => fetchJson<Paginated<FirmwareRelease>>("/firmware/"),
+  otaDeployments: () => fetchJson<Paginated<OtaDeployment>>("/ota/deployments/"),
+  createOtaDeployment: async (payload: {
+    firmware: File;
+    version: string;
+    hwVersion: string;
+    deviceIds: string[];
+  }) => {
+    const body = new FormData();
+    body.append("firmware", payload.firmware);
+    body.append("version", payload.version);
+    body.append("hw_version", payload.hwVersion);
+    body.append("device_ids", JSON.stringify(payload.deviceIds));
+    const res = await fetch(`${API_BASE}/ota/deployments/`, {
+      method: "POST",
+      body,
+    });
+    if (!res.ok) throw new Error(`API ${res.status}: /ota/deployments/`);
+    return (await res.json()) as OtaDeployment;
+  },
   thresholds: () => fetchJson<ThresholdConfig>("/thresholds/"),
   updateThresholds: async (payload: Omit<ThresholdConfig, "updated_at">) => {
     const res = await fetch(`${API_BASE}/thresholds/`, {

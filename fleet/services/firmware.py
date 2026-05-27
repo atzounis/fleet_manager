@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 
-from fleet.models import Device, FirmwareRelease
+from django.utils import timezone
+
+from fleet.models import Device, FirmwareRelease, OtaDeployment, OtaDeploymentTarget
 
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([\w.]+))?$")
 
@@ -31,6 +33,26 @@ def is_newer_version(candidate: str, current: str) -> bool:
 
 
 def find_ota_release(device: Device) -> FirmwareRelease | None:
+    targeted = (
+        OtaDeploymentTarget.objects.select_related("deployment__firmware")
+        .filter(
+            device=device,
+            status__in=[OtaDeploymentTarget.Status.PENDING, OtaDeploymentTarget.Status.OFFERED],
+            deployment__status__in=[OtaDeployment.Status.PENDING, OtaDeployment.Status.IN_PROGRESS],
+            deployment__firmware__hw_version=device.hw_version,
+            deployment__firmware__is_active=True,
+        )
+        .order_by("-deployment__created_at")
+        .first()
+    )
+    if targeted:
+        release = targeted.deployment.firmware
+        if is_newer_version(release.version, device.fw_version):
+            targeted.status = OtaDeploymentTarget.Status.OFFERED
+            targeted.offered_at = timezone.now()
+            targeted.save(update_fields=["status", "offered_at", "updated_at"])
+            return release
+
     if not device.cohort_id:
         return None
     releases = FirmwareRelease.objects.filter(

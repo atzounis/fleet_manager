@@ -9,6 +9,8 @@ from fleet.models import (
     FirmwareRelease,
     FleetEvent,
     HeartbeatMetric,
+    OtaDeployment,
+    OtaDeploymentTarget,
     TelemetryThresholdConfig,
 )
 
@@ -139,4 +141,38 @@ class FleetEventSerializer(serializers.ModelSerializer):
             "summary",
             "details",
             "device_id",
+        )
+
+
+class OtaDeploymentTargetSerializer(serializers.ModelSerializer):
+    device_id = serializers.CharField(source="device.device_id", read_only=True)
+
+    class Meta:
+        model = OtaDeploymentTarget
+        fields = (
+            "device_id",
+            "status",
+            "last_error",
+            "offered_at",
+            "completed_at",
+            "updated_at",
+        )
+
+
+class OtaDeploymentSerializer(serializers.ModelSerializer):
+    firmware_version = serializers.CharField(source="firmware.version", read_only=True)
+    firmware_hw_version = serializers.CharField(source="firmware.hw_version", read_only=True)
+    targets = OtaDeploymentTargetSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = OtaDeployment
+        fields = (
+            "id",
+            "status",
+            "firmware",
+            "firmware_version",
+            "firmware_hw_version",
+            "created_at",
+            "updated_at",
+            "targets",
         )
