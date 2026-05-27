@@ -2,6 +2,7 @@ import json
 import uuid
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.db.models import Count, Q
 from django.utils.decorators import method_decorator
 from django.utils import timezone
@@ -23,7 +24,7 @@ from fleet.models import (
     TelemetryThresholdConfig,
 )
 from fleet.services.events import create_event
-from fleet.services.storage import StorageError, upload_bytes
+from fleet.services.storage import StorageError, delete_object, upload_bytes
 
 from .serializers import (
     CohortSerializer,
@@ -206,14 +207,25 @@ class OtaDeploymentListCreateView(APIView):
         except StorageError:
             return Response({"detail": "Object storage unavailable"}, status=503)
 
-        release = FirmwareRelease.objects.create(
-            version=version,
-            hw_version=hw_version,
-            cohort=cohort,
-            s3_key=object_key,
-            file_size_bytes=len(payload),
-            is_active=True,
-        )
+        try:
+            release = FirmwareRelease.objects.create(
+                version=version,
+                hw_version=hw_version,
+                cohort=cohort,
+                s3_key=object_key,
+                file_size_bytes=len(payload),
+                is_active=True,
+            )
+        except IntegrityError:
+            return Response(
+                {
+                    "detail": (
+                        f"Firmware version {version} already exists for HW {hw_version}. "
+                        "Use a new version for OTA deployments."
+                    )
+                },
+                status=400,
+            )
         deployment = OtaDeployment.objects.create(
             firmware=release,
             status=OtaDeployment.Status.PENDING,
@@ -247,6 +259,35 @@ class OtaDeploymentListCreateView(APIView):
             .get(pk=deployment.pk)
         )
         return Response(OtaDeploymentSerializer(deployment).data, status=201)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class OtaDeploymentDetailView(APIView):
+    authentication_classes: list[type[SessionAuthentication]] = []
+
+    def delete(self, request, deployment_id: int):
+        deployment = (
+            OtaDeployment.objects.select_related("firmware")
+            .filter(pk=deployment_id)
+            .first()
+        )
+        if not deployment:
+            return Response({"detail": "deployment not found"}, status=404)
+
+        release = deployment.firmware
+        s3_key = release.s3_key
+        delete_release = release.ota_deployments.count() == 1
+
+        deployment.delete()
+
+        if delete_release:
+            try:
+                delete_object(s3_key)
+            except StorageError:
+                pass
+            release.delete()
+
+        return Response(status=204)
 
 
 class CohortListView(generics.ListAPIView):

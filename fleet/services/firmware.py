@@ -5,6 +5,7 @@ import re
 from django.utils import timezone
 
 from fleet.models import Device, FirmwareRelease, OtaDeployment, OtaDeploymentTarget
+from fleet.services.storage import object_exists
 
 _SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([\w.]+))?$")
 
@@ -47,7 +48,14 @@ def find_ota_release(device: Device) -> FirmwareRelease | None:
     )
     if targeted:
         release = targeted.deployment.firmware
-        if is_newer_version(release.version, device.fw_version):
+        if not object_exists(release.s3_key):
+            targeted.status = OtaDeploymentTarget.Status.FAILED
+            targeted.last_error = "Firmware object missing in storage."
+            targeted.completed_at = timezone.now()
+            targeted.save(
+                update_fields=["status", "last_error", "completed_at", "updated_at"]
+            )
+        elif is_newer_version(release.version, device.fw_version):
             targeted.status = OtaDeploymentTarget.Status.OFFERED
             targeted.offered_at = timezone.now()
             targeted.save(update_fields=["status", "offered_at", "updated_at"])
@@ -62,6 +70,8 @@ def find_ota_release(device: Device) -> FirmwareRelease | None:
     )
     best: FirmwareRelease | None = None
     for release in releases:
+        if not object_exists(release.s3_key):
+            continue
         if not is_newer_version(release.version, device.fw_version):
             continue
         if best is None or is_newer_version(release.version, best.version):

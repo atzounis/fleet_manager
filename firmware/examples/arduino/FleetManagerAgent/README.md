@@ -82,4 +82,6 @@ The sketch polls `/api/v1/agent/ota-check/` about every 5 minutes and applies up
 
 Do **not** upload `bootloader.bin`, `partitions.bin`, or `merged.bin` for OTA — app image only.
 
+**Serial shows `[ota] update available:` with a blank URL** — reflash this sketch (it disables HTTP redirect following so `Location` and `X-Firmware-Version` are read from the 302). Also set `AWS_S3_PUBLIC_ENDPOINT_URL` to your LAN MinIO URL in `.env` (see root README).
+
 Cohort-based rollouts via Django admin still work for devices assigned to a cohort.

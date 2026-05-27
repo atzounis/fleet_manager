@@ -179,7 +179,7 @@ fleet_manager/
 ├── firmware/
 │   ├── sdk/              # Shared C headers (reference)
 │   └── examples/         # Arduino + ESP-IDF ready-to-flash agents
-├── images/               # Photos for README (Arduino / ESP32 setup)
+├── images/               # README screenshots (hardware setup, dashboard, OTA)
 ├── scripts/              # stop-local.sh, simulate_heartbeat.py
 ├── docker/               # Gunicorn entrypoint, nginx config for frontend image
 ├── scripts/              # stop-local.sh — free ports before compose up
@@ -386,9 +386,46 @@ Upload **one** file per deployment: `FleetManagerAgent.ino.bin`.
 - **OTA code must be in the binary you ship.** The sketch must include OTA check/apply logic (this repo’s agent does). If you flash a build without OTA support, the next update requires USB again.
 - **Version numbers:** set **Version** in the dashboard to match `FLEET_FW_VERSION` in `secrets.h` (e.g. `1.1.0`). Set **HW version** to match `FLEET_HW_VERSION` (e.g. `1.0`).
 - **First install vs OTA:** use USB **Upload** once to get OTA-capable firmware on the device; after that, use the dashboard for subsequent updates.
-- **Polling interval:** the Arduino agent checks OTA about every **5 minutes** (`FLEET_OTA_MS`). After **Send OTA**, wait for the next poll or reboot the device to trigger sooner.
+- **Polling interval:** the Arduino agent checks OTA about every **5 minutes** (`FLEET_OTA_MS`) unless overridden in `secrets.h`. After **Send OTA**, wait for the next poll or reboot the device to trigger sooner.
 - **Presigned URLs:** if OTA download fails from the device, set `AWS_S3_PUBLIC_ENDPOINT_URL` in `.env` to your LAN MinIO API URL (see `.env.example`).
 - **Deployment stuck at `pending` / `offered`:** this usually means the device can reach `/api/v1/agent/ota-check/` but cannot fetch the binary URL from `Location`. A common misconfiguration is signed URLs using `http://minio:9000/...` (Docker-internal host). Configure `AWS_S3_PUBLIC_ENDPOINT_URL=http://<your-lan-ip>:<MINIO_API_HOST_PORT>` (for example `http://192.168.68.108:38472`) and restart `web`.
+
+#### OTA through the dashboard (end-to-end)
+
+The flow below was verified on a real ESP32 over Wi‑Fi: export the app binary, deploy from the **Firmware** tab, device downloads from MinIO, reboots on the new version, and the dashboard marks the target **updated**.
+
+1. **Firmware tab** — open **Deploy OTA Update**, set version/HW, and pick targets (or use **Sketch → Export Compiled Binary** first).
+
+   ![Fleet Manager firmware tab — deploy OTA form](images/making-available-OTA-bin.png)
+
+2. **Choose the app binary** — select `FleetManagerAgent.ino.bin` from the sketch `build/esp32.esp32.*/` folder (not `merged.bin` or bootloader).
+
+   ![Choosing FleetManagerAgent.ino.bin for OTA upload](images/choosing-OTA-binary.png)
+
+3. **Queue deployment** — enter the new version (e.g. `1.1.2`), matching HW (e.g. `1.0`), select device(s), click **Send OTA**.
+
+   ![Selecting target devices and sending OTA](images/selecting-target-devices-for-OTA.png)
+
+4. **Device applies update** — Serial Monitor shows presigned URL download, `update applied`, reboot, and the new `FW` line after boot.
+
+   ![ESP32 serial log — OTA detected, applied, and rebooted](images/ESP32-detected-update-and-completed-OTA-successfully.png)
+
+   Example (abbreviated):
+
+   ```text
+   [ota] checking for update (fw 1.0.0)...
+   [ota] update available: http://192.168.68.108:38472/fleet-manager/firmware/manual/1.1.2/...
+   [ota] version: 1.1.2
+   [ota] downloading: http://192.168.68.108:38472/...
+   [ota] update applied, rebooting to 1.1.2
+   [ota-report] updated sent
+   ...
+   HW 1.0  FW 1.1.2
+   ```
+
+5. **Dashboard confirms** — **Recent Deployments** shows `completed`; the device badge shows `updated`.
+
+   ![Dashboard — deployment completed and device updated](images/platform-updated-with-OTA-completed.png)
 
 ### ESP-IDF / FreeRTOS
 
@@ -414,9 +451,13 @@ Open http://localhost:61294 — allow ~60s for Redis flush, or check `curl http:
 
 Dashboard views from a local run:
 
-![Fleet Manager dashboard overview](images/platform1.png)
-![Fleet Manager events and threshold settings](images/platform2.png)
-![Fleet Manager OTA deployment workflow in firmware tab](images/platform3.png)
+| View | Screenshot |
+|------|------------|
+| Devices overview | ![Fleet Manager dashboard overview](images/platform1.png) |
+| Events and thresholds | ![Fleet Manager events and threshold settings](images/platform2.png) |
+| Firmware / OTA tab | ![Fleet Manager OTA deployment workflow](images/platform3.png) |
+
+For a full **USB → export → deploy → device reboot → dashboard completed** walkthrough with Serial Monitor proof, see [OTA through the dashboard (end-to-end)](#ota-through-the-dashboard-end-to-end) above.
 
 ### ESP32 gets HTTP 400 on heartbeat or crash-report
 

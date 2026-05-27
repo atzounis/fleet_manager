@@ -23,6 +23,34 @@ def get_s3_client():
     )
 
 
+def delete_object(key: str) -> None:
+    client = get_s3_client()
+    try:
+        client.delete_object(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Key=key,
+        )
+    except (BotoCoreError, ClientError) as exc:
+        raise StorageError("Failed to delete object from storage.") from exc
+
+
+def object_exists(key: str) -> bool:
+    client = get_s3_client()
+    try:
+        client.head_object(
+            Bucket=settings.AWS_STORAGE_BUCKET_NAME,
+            Key=key,
+        )
+        return True
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            return False
+        raise StorageError("Failed to check object in storage.") from exc
+    except BotoCoreError as exc:
+        raise StorageError("Failed to check object in storage.") from exc
+
+
 def upload_bytes(key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
     client = get_s3_client()
     try:

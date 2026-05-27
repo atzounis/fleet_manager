@@ -44,6 +44,8 @@ export default function App() {
   const [otaFile, setOtaFile] = useState<File | null>(null);
   const [otaTargets, setOtaTargets] = useState<string[]>([]);
   const [otaSending, setOtaSending] = useState(false);
+  const [deletingDeploymentId, setDeletingDeploymentId] = useState<number | null>(null);
+  const [confirmDeleteDeploymentId, setConfirmDeleteDeploymentId] = useState<number | null>(null);
   const [otaError, setOtaError] = useState<string | null>(null);
   const [eventDeviceFilter, setEventDeviceFilter] = useState<string>("all");
   const [eventHoursFilter, setEventHoursFilter] = useState<number>(24);
@@ -451,6 +453,67 @@ export default function App() {
                       <span className="text-slate-500">
                         {new Date(dep.created_at).toLocaleString()}
                       </span>
+                      {confirmDeleteDeploymentId === dep.id ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-amber-300">
+                            Delete deployment #{dep.id}?
+                          </span>
+                          <button
+                            type="button"
+                            disabled={deletingDeploymentId === dep.id}
+                            className="rounded border border-rose-700 px-2 py-0.5 text-rose-200 hover:bg-rose-900/50 disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              setDeletingDeploymentId(dep.id);
+                              setOtaError(null);
+                              try {
+                                await api.deleteOtaDeployment(dep.id);
+                                const firmwareId = dep.firmware;
+                                setDeployments((current) =>
+                                  current.filter((d) => d.id !== dep.id)
+                                );
+                                setFirmware((current) =>
+                                  current.filter((f) => f.id !== firmwareId)
+                                );
+                                setConfirmDeleteDeploymentId(null);
+                              } catch (err) {
+                                setOtaError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Failed to delete deployment"
+                                );
+                              } finally {
+                                setDeletingDeploymentId(null);
+                              }
+                            }}
+                          >
+                            {deletingDeploymentId === dep.id ? "Deleting..." : "Confirm"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={deletingDeploymentId === dep.id}
+                            className="rounded border border-slate-700 px-2 py-0.5 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDeleteDeploymentId(null);
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={deletingDeploymentId === dep.id}
+                          className="rounded border border-rose-700/70 px-2 py-0.5 text-rose-300 hover:bg-rose-950/60 disabled:cursor-not-allowed disabled:opacity-60"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDeleteDeploymentId(dep.id);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {dep.targets.map((t) => (

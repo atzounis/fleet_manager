@@ -18,5 +18,8 @@
 /* Multiply ADC pin voltage to get pack mV (e.g. 2.0 for a 1:1 resistor divider). */
 #define FLEET_BATTERY_DIVIDER_RATIO 2.0f
 
+/* OTA poll interval in ms (default 5 min). Use 60000 for faster testing. */
+/* #define FLEET_OTA_MS (60 * 1000UL) */
+
 /* POST a simulated crash once after boot (dashboard testing). */
 #define FLEET_SEND_TEST_CRASH 1
