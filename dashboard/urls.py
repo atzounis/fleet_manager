@@ -11,6 +11,11 @@ urlpatterns = [
         name="device-label-update",
     ),
     path(
+        "devices/<str:device_id>/commands/",
+        views.DeviceCommandCreateView.as_view(),
+        name="device-command-create",
+    ),
+    path(
         "devices/<str:device_id>/metrics/",
         views.DeviceMetricsView.as_view(),
         name="device-metrics",

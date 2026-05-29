@@ -10,7 +10,10 @@
 #include "esp_mac.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "fleet_cbor.h"
+#include "fleet_command.h"
 
 static const char *TAG = "fleet_http";
 
@@ -77,10 +80,25 @@ bool fleet_http_send_heartbeat(void)
 
     esp_err_t err = esp_http_client_perform(client);
     int status = esp_http_client_get_status_code(client);
+
+    char response[128] = {0};
+    if (status == 200) {
+        int read_len = esp_http_client_read_response(
+            client, response, (int)sizeof(response) - 1);
+        if (read_len > 0) {
+            response[read_len] = '\0';
+        }
+    }
+
     esp_http_client_cleanup(client);
 
     ESP_LOGI(TAG, "heartbeat err=%s status=%d", esp_err_to_name(err), status);
-    return err == ESP_OK && status == 200;
+    if (err == ESP_OK && status == 200) {
+        fleet_command_handle_heartbeat_response(
+            response, (size_t)strlen(response));
+        return true;
+    }
+    return false;
 }
 
 bool fleet_http_send_test_crash(void)

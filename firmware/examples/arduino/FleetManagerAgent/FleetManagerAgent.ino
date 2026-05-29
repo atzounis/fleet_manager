@@ -32,6 +32,7 @@ uint8_t temprature_sens_read();
 #include <esp_system.h>
 
 #include "fleet_cbor.h"
+#include "fleet_command.h"
 #include "secrets.h"
 
 /* =========================================================
@@ -319,6 +320,8 @@ static bool send_heartbeat()
 
     if (code == 200) {
 
+        String response = http.getString();
+
         Serial.printf(
             "[heartbeat] OK "
             "heap=%lu "
@@ -337,6 +340,12 @@ static bool send_heartbeat()
 
             (int)t.cpu_temp_c);
 
+        http.end();
+
+        fleet_command_handle_heartbeat_response(response);
+
+        return true;
+
     } else {
 
         Serial.printf(
@@ -347,7 +356,7 @@ static bool send_heartbeat()
 
     http.end();
 
-    return code == 200;
+    return false;
 }
 
 /* =========================================================
@@ -656,6 +665,8 @@ void setup()
 
 void loop()
 {
+    fleet_command_process_pending_reboot();
+
     if (!wifi_connect()) {
 
         delay(5000);

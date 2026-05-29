@@ -130,8 +130,9 @@ class CrashReport(models.Model):
 
 
 class TelemetryThresholdConfig(models.Model):
-    """Global chart threshold configuration editable from dashboard UI."""
+    """Per device-type (hw_version) chart and alert thresholds."""
 
+    hw_version = models.CharField(max_length=32, unique=True, default="1.0")
     heap_free_bytes_min = models.PositiveIntegerField(default=50000)
     wifi_rssi_dbm_min = models.SmallIntegerField(default=-75)
     battery_voltage_mv_min = models.PositiveIntegerField(default=3600)
@@ -140,7 +141,11 @@ class TelemetryThresholdConfig(models.Model):
 
     class Meta:
         verbose_name = "Telemetry threshold config"
-        verbose_name_plural = "Telemetry threshold config"
+        verbose_name_plural = "Telemetry threshold configs"
+        ordering = ["hw_version"]
+
+    def __str__(self) -> str:
+        return f"Thresholds HW {self.hw_version}"
 
 
 class FleetEvent(models.Model):
@@ -153,6 +158,7 @@ class FleetEvent(models.Model):
         OTA_UPDATED = "ota_updated", "OTA updated"
         OTA_FAILED = "ota_failed", "OTA failed"
         OTA_ROLLED_BACK = "ota_rolled_back", "OTA rolled back"
+        REBOOT_QUEUED = "reboot_queued", "Reboot queued"
 
     class Severity(models.TextChoices):
         INFO = "info", "Info"
@@ -174,6 +180,40 @@ class FleetEvent(models.Model):
 
     class Meta:
         ordering = ["-event_at"]
+
+
+class DeviceCommand(models.Model):
+    class Command(models.TextChoices):
+        REBOOT = "reboot", "Reboot"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        DELIVERED = "delivered", "Delivered"
+        CANCELLED = "cancelled", "Cancelled"
+
+    device = models.ForeignKey(
+        Device,
+        on_delete=models.CASCADE,
+        related_name="commands",
+    )
+    command = models.CharField(max_length=32, choices=Command.choices)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["device", "status", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.device_id} {self.command} ({self.status})"
 
 
 class OtaDeployment(models.Model):

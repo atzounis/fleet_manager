@@ -4,6 +4,7 @@ import uuid
 from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import Count, Q
+from django.utils.dateparse import parse_datetime
 from django.utils.decorators import method_decorator
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -23,8 +24,10 @@ from fleet.models import (
     OtaDeploymentTarget,
     TelemetryThresholdConfig,
 )
+from fleet.services.commands import queue_device_command
 from fleet.services.events import create_event
 from fleet.services.storage import StorageError, delete_object, upload_bytes
+from fleet.services.thresholds import current_thresholds, default_thresholds_for_hw
 
 from .serializers import (
     CohortSerializer,
@@ -36,23 +39,6 @@ from .serializers import (
     OtaDeploymentSerializer,
     TelemetryThresholdConfigSerializer,
 )
-
-
-def _current_thresholds() -> dict[str, int]:
-    config = TelemetryThresholdConfig.objects.order_by("-updated_at").first()
-    if config:
-        return {
-            "heap_free_bytes_min": config.heap_free_bytes_min,
-            "wifi_rssi_dbm_min": config.wifi_rssi_dbm_min,
-            "battery_voltage_mv_min": config.battery_voltage_mv_min,
-            "cpu_temperature_c_max": config.cpu_temperature_c_max,
-        }
-    return {
-        "heap_free_bytes_min": settings.THRESHOLD_HEAP_FREE_BYTES_MIN,
-        "wifi_rssi_dbm_min": settings.THRESHOLD_WIFI_RSSI_DBM_MIN,
-        "battery_voltage_mv_min": settings.THRESHOLD_BATTERY_VOLTAGE_MV_MIN,
-        "cpu_temperature_c_max": settings.THRESHOLD_CPU_TEMPERATURE_C_MAX,
-    }
 
 
 class FleetStatsView(APIView):
@@ -70,7 +56,7 @@ class FleetStatsView(APIView):
                 "heartbeat_expected_interval_seconds": settings.HEARTBEAT_EXPECTED_INTERVAL_SECONDS,
                 "heartbeat_missed_iterations": settings.HEARTBEAT_MISSED_ITERATIONS,
                 "online_window_seconds": settings.HEARTBEAT_ONLINE_WINDOW_SECONDS,
-                "thresholds": _current_thresholds(),
+                "thresholds": current_thresholds("1.0"),
                 "crashes_pending": CrashReport.objects.filter(
                     status=CrashReport.Status.PENDING
                 ).count(),
@@ -118,14 +104,65 @@ class DeviceLabelUpdateView(APIView):
         return Response(DeviceSerializer(device).data)
 
 
+@method_decorator(csrf_exempt, name="dispatch")
+class DeviceCommandCreateView(APIView):
+    authentication_classes: list[type[SessionAuthentication]] = []
+
+    def post(self, request, device_id: str):
+        command = str(request.data.get("command", "reboot")).strip()
+        if command != "reboot":
+            return Response({"detail": "unsupported command; use reboot"}, status=400)
+        device = Device.objects.filter(device_id=device_id).first()
+        if not device:
+            return Response({"detail": "device not found"}, status=404)
+        try:
+            cmd = queue_device_command(device, command)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(
+            {
+                "id": cmd.pk,
+                "device_id": device.device_id,
+                "command": cmd.command,
+                "status": cmd.status,
+                "created_at": cmd.created_at.isoformat(),
+            },
+            status=201,
+        )
+
+
 class DeviceMetricsView(generics.ListAPIView):
     serializer_class = HeartbeatSerializer
+    METRICS_MAX_HISTORY_DAYS = 7
+    METRICS_DEFAULT_LIMIT = 48
+    METRICS_MAX_LIMIT = 10080
 
     def get_queryset(self):
-        limit = min(int(self.request.query_params.get("limit", 100)), 500)
-        return HeartbeatMetric.objects.filter(
-            device_id=self.kwargs["device_id"]
-        ).order_by("-recorded_at")[:limit]
+        limit = min(
+            int(self.request.query_params.get("limit", self.METRICS_DEFAULT_LIMIT)),
+            self.METRICS_MAX_LIMIT,
+        )
+        now = timezone.now()
+        earliest = now - timezone.timedelta(days=self.METRICS_MAX_HISTORY_DAYS)
+
+        qs = HeartbeatMetric.objects.filter(
+            device_id=self.kwargs["device_id"],
+            recorded_at__gte=earliest,
+        )
+
+        end_param = self.request.query_params.get("end")
+        if end_param:
+            end = parse_datetime(end_param)
+            if end is not None:
+                if timezone.is_naive(end):
+                    end = timezone.make_aware(end, timezone.get_current_timezone())
+                qs = qs.filter(recorded_at__lt=min(end, now))
+            else:
+                qs = qs.filter(recorded_at__lte=now)
+        else:
+            qs = qs.filter(recorded_at__lte=now)
+
+        return qs.order_by("-recorded_at")[:limit]
 
 
 class CrashListView(generics.ListAPIView):
@@ -302,17 +339,23 @@ class TelemetryThresholdConfigView(APIView):
     authentication_classes: list[type[SessionAuthentication]] = []
 
     def get(self, request):
-        config = TelemetryThresholdConfig.objects.order_by("-updated_at").first()
-        if not config:
-            data = {
-                "heap_free_bytes_min": settings.THRESHOLD_HEAP_FREE_BYTES_MIN,
-                "wifi_rssi_dbm_min": settings.THRESHOLD_WIFI_RSSI_DBM_MIN,
-                "battery_voltage_mv_min": settings.THRESHOLD_BATTERY_VOLTAGE_MV_MIN,
-                "cpu_temperature_c_max": settings.THRESHOLD_CPU_TEMPERATURE_C_MAX,
-                "updated_at": None,
-            }
-            return Response(data)
-        return Response(TelemetryThresholdConfigSerializer(config).data)
+        hw_version = request.query_params.get("hw_version")
+        if hw_version:
+            config = TelemetryThresholdConfig.objects.filter(hw_version=hw_version).first()
+            if config:
+                return Response(TelemetryThresholdConfigSerializer(config).data)
+            defaults = default_thresholds_for_hw(hw_version)
+            return Response(
+                {
+                    "hw_version": hw_version,
+                    **defaults,
+                    "updated_at": None,
+                }
+            )
+
+        configs = TelemetryThresholdConfig.objects.order_by("hw_version")
+        results = TelemetryThresholdConfigSerializer(configs, many=True).data
+        return Response({"count": len(results), "results": results})
 
     def put(self, request):
         return self._save(request)
@@ -321,7 +364,12 @@ class TelemetryThresholdConfigView(APIView):
         return self._save(request)
 
     def _save(self, request):
-        config = TelemetryThresholdConfig.objects.order_by("-updated_at").first()
+        hw_version = str(request.data.get("hw_version", "1.0")).strip() or "1.0"
+        defaults = default_thresholds_for_hw(hw_version)
+        config, _ = TelemetryThresholdConfig.objects.get_or_create(
+            hw_version=hw_version,
+            defaults=defaults,
+        )
         serializer = TelemetryThresholdConfigSerializer(
             instance=config, data=request.data, partial=False
         )

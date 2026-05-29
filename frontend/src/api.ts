@@ -38,12 +38,18 @@ export interface FleetStats {
 }
 
 export interface ThresholdConfig {
+  hw_version: string;
   heap_free_bytes_min: number;
   wifi_rssi_dbm_min: number;
   battery_voltage_mv_min: number;
   cpu_temperature_c_max: number;
   updated_at: string | null;
 }
+
+export const THRESHOLD_HW_PROFILES = [
+  { hw_version: "1.0", label: "ESP32 (HW 1.0)" },
+  { hw_version: "8266", label: "ESP8266 (HW 8266)" },
+] as const;
 
 export interface Device {
   device_id: string;
@@ -120,13 +126,44 @@ export interface Paginated<T> {
   results: T[];
 }
 
+export const CHART_MAX_HISTORY_DAYS = 7;
+export const CHART_MAX_LIMIT = 10080;
+
+/** Window sizes in heartbeat points (~1/min → minutes of history). */
+export const CHART_ZOOM_LEVELS = [
+  24, 48, 96, 192, 384, 768, 1536, 3024, 6048, 10080,
+] as const;
+
+export const CHART_DEFAULT_ZOOM_INDEX = 1;
+
+/** @deprecated use CHART_ZOOM_LEVELS[CHART_DEFAULT_ZOOM_INDEX] */
+export const CHART_METRICS_LIMIT = CHART_ZOOM_LEVELS[CHART_DEFAULT_ZOOM_INDEX];
+
+export function formatChartWindow(limit: number): string {
+  if (limit >= 10080) return "~1 week";
+  if (limit < 60) return `~${limit} min`;
+  if (limit < 1440) {
+    const hours = Math.round(limit / 60);
+    return hours === 1 ? "~1 hour" : `~${hours} hours`;
+  }
+  const days = Math.round(limit / 1440);
+  return days === 1 ? "~1 day" : `~${days} days`;
+}
+
 export const api = {
   stats: () => fetchJson<FleetStats>("/stats/"),
   devices: () => fetchJson<Paginated<Device>>("/devices/"),
-  metrics: (deviceId: string, limit = 48) =>
-    fetchJson<Paginated<Heartbeat>>(
-      `/devices/${deviceId}/metrics/?limit=${limit}`
-    ),
+  metrics: (
+    deviceId: string,
+    params?: { limit?: number; end?: string }
+  ) => {
+    const qs = new URLSearchParams();
+    qs.set("limit", String(params?.limit ?? CHART_ZOOM_LEVELS[CHART_DEFAULT_ZOOM_INDEX]));
+    if (params?.end) qs.set("end", params.end);
+    return fetchJson<Paginated<Heartbeat>>(
+      `/devices/${deviceId}/metrics/?${qs.toString()}`
+    );
+  },
   crashes: () => fetchJson<Paginated<CrashReport>>("/crashes/"),
   events: (params?: { deviceId?: string; hours?: number }) => {
     const qs = new URLSearchParams();
@@ -172,8 +209,12 @@ export const api = {
       );
     }
   },
-  thresholds: () => fetchJson<ThresholdConfig>("/thresholds/"),
-  updateThresholds: async (payload: Omit<ThresholdConfig, "updated_at">) => {
+  thresholdsList: () => fetchJson<Paginated<ThresholdConfig>>("/thresholds/"),
+  thresholds: (hwVersion = "1.0") =>
+    fetchJson<ThresholdConfig>(
+      `/thresholds/?hw_version=${encodeURIComponent(hwVersion)}`
+    ),
+  updateThresholds: async (payload: ThresholdConfig) => {
     const res = await fetch(`${API_BASE}/thresholds/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -196,5 +237,24 @@ export const api = {
       );
     }
     return (await res.json()) as Device;
+  },
+  queueDeviceReboot: async (deviceId: string) => {
+    const res = await fetch(`${API_BASE}/devices/${deviceId}/commands/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command: "reboot" }),
+    });
+    if (!res.ok) {
+      throw new Error(
+        await parseErrorMessage(res, `API ${res.status}: /devices/${deviceId}/commands/`)
+      );
+    }
+    return (await res.json()) as {
+      id: number;
+      device_id: string;
+      command: string;
+      status: string;
+      created_at: string;
+    };
   },
 };
