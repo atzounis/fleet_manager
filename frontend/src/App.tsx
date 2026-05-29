@@ -4,6 +4,9 @@ import {
   CHART_DEFAULT_ZOOM_INDEX,
   CHART_MAX_HISTORY_DAYS,
   CHART_ZOOM_LEVELS,
+  EVENT_METRIC_OPTIONS,
+  EVENT_PAGE_SIZE,
+  EVENT_SEVERITY_OPTIONS,
   Device,
   FleetEvent,
   FleetStats,
@@ -60,6 +63,11 @@ export default function App() {
   const [otaError, setOtaError] = useState<string | null>(null);
   const [eventDeviceFilter, setEventDeviceFilter] = useState<string>("all");
   const [eventHoursFilter, setEventHoursFilter] = useState<number>(24);
+  const [eventSeverityFilter, setEventSeverityFilter] = useState("");
+  const [eventMetricFilter, setEventMetricFilter] = useState("");
+  const [eventPage, setEventPage] = useState(1);
+  const [eventCount, setEventCount] = useState(0);
+  const [eventsLoading, setEventsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [thresholdError, setThresholdError] = useState<string | null>(null);
   const [thresholdSuccess, setThresholdSuccess] = useState<string | null>(null);
@@ -76,19 +84,14 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const [s, d, c, f, od] = await Promise.all([
+      const [s, d, f, od] = await Promise.all([
         api.stats(),
         api.devices(),
-        api.events({
-          deviceId: eventDeviceFilter === "all" ? undefined : eventDeviceFilter,
-          hours: eventHoursFilter,
-        }),
         api.firmware(),
         api.otaDeployments(),
       ]);
       setStats(s);
       setDevices(d.results);
-      setEvents(c.results);
       setFirmware(f.results);
       setDeployments(od.results);
       api.thresholdsList()
@@ -107,11 +110,43 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [selectedId, eventDeviceFilter, eventHoursFilter]);
+  }, [selectedId]);
+
+  const loadEvents = useCallback(async () => {
+    setEventsLoading(true);
+    try {
+      const response = await api.events({
+        deviceId: eventDeviceFilter === "all" ? undefined : eventDeviceFilter,
+        hours: eventHoursFilter,
+        page: eventPage,
+        severity: eventSeverityFilter || undefined,
+        metric: eventMetricFilter || undefined,
+      });
+      setEvents(response.results);
+      setEventCount(response.count);
+    } catch (e) {
+      setEvents([]);
+      setEventCount(0);
+      setError(e instanceof Error ? e.message : "Failed to load events");
+    } finally {
+      setEventsLoading(false);
+    }
+  }, [
+    eventDeviceFilter,
+    eventHoursFilter,
+    eventSeverityFilter,
+    eventMetricFilter,
+    eventPage,
+  ]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (tab !== "events") return;
+    loadEvents();
+  }, [tab, loadEvents]);
 
   useEffect(() => {
     if (tab !== "settings") return;
@@ -239,6 +274,19 @@ export default function App() {
   const settingsProfileLabel =
     THRESHOLD_HW_PROFILES.find((profile) => profile.hw_version === settingsHwVersion)
       ?.label ?? `HW ${settingsHwVersion}`;
+
+  const eventTotalPages = Math.max(1, Math.ceil(eventCount / EVENT_PAGE_SIZE));
+  const eventRangeStart =
+    eventCount === 0 ? 0 : (eventPage - 1) * EVENT_PAGE_SIZE + 1;
+  const eventRangeEnd = Math.min(eventPage * EVENT_PAGE_SIZE, eventCount);
+
+  const resetEventFilters = () => {
+    setEventDeviceFilter("all");
+    setEventHoursFilter(24);
+    setEventSeverityFilter("");
+    setEventMetricFilter("");
+    setEventPage(1);
+  };
   const toggleOtaTarget = (deviceId: string) => {
     setOtaTargets((current) =>
       current.includes(deviceId)
@@ -451,32 +499,123 @@ export default function App() {
 
         {tab === "events" && !loading && (
           <div className="space-y-3">
-            <div className="flex flex-wrap gap-3">
-              <select
-                value={eventDeviceFilter}
-                onChange={(e) => setEventDeviceFilter(e.target.value)}
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs text-slate-400">Device</span>
+                <select
+                  value={eventDeviceFilter}
+                  onChange={(e) => {
+                    setEventPage(1);
+                    setEventDeviceFilter(e.target.value);
+                  }}
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                >
+                  <option value="all">All devices</option>
+                  {devices.map((d) => (
+                    <option key={d.device_id} value={d.device_id}>
+                      {d.label ? `${d.label} (${d.device_id})` : d.device_id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs text-slate-400">Time range</span>
+                <select
+                  value={eventHoursFilter}
+                  onChange={(e) => {
+                    setEventPage(1);
+                    setEventHoursFilter(Number(e.target.value));
+                  }}
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                >
+                  <option value={1}>Last 1h</option>
+                  <option value={6}>Last 6h</option>
+                  <option value={24}>Last 24h</option>
+                  <option value={72}>Last 72h</option>
+                  <option value={168}>Last 7d</option>
+                </select>
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs text-slate-400">Severity</span>
+                <select
+                  value={eventSeverityFilter}
+                  onChange={(e) => {
+                    setEventPage(1);
+                    setEventSeverityFilter(e.target.value);
+                  }}
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                >
+                  {EVENT_SEVERITY_OPTIONS.map((option) => (
+                    <option key={option.label} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs text-slate-400">Metric</span>
+                <select
+                  value={eventMetricFilter}
+                  onChange={(e) => {
+                    setEventPage(1);
+                    setEventMetricFilter(e.target.value);
+                  }}
+                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  title="Filters threshold breach events by telemetry field"
+                >
+                  {EVENT_METRIC_OPTIONS.map((option) => (
+                    <option key={option.label} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={resetEventFilters}
+                className="rounded-md border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800"
               >
-                <option value="all">All devices</option>
-                {devices.map((d) => (
-                  <option key={d.device_id} value={d.device_id}>
-                    {d.device_id}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={eventHoursFilter}
-                onChange={(e) => setEventHoursFilter(Number(e.target.value))}
-                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
-              >
-                <option value={1}>Last 1h</option>
-                <option value={6}>Last 6h</option>
-                <option value={24}>Last 24h</option>
-                <option value={72}>Last 72h</option>
-                <option value={168}>Last 7d</option>
-              </select>
+                Clear filters
+              </button>
             </div>
-            {events.map((ev) => (
+
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+              <span>
+                {eventsLoading
+                  ? "Loading events…"
+                  : eventCount === 0
+                    ? "No matching events"
+                    : `Showing ${eventRangeStart}–${eventRangeEnd} of ${eventCount}`}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={eventsLoading || eventPage <= 1}
+                  onClick={() => setEventPage((page) => Math.max(1, page - 1))}
+                  className="rounded-md border border-slate-700 px-2 py-1 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ← Previous
+                </button>
+                <span className="text-slate-500">
+                  Page {eventPage} of {eventTotalPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={eventsLoading || eventPage >= eventTotalPages}
+                  onClick={() =>
+                    setEventPage((page) => Math.min(eventTotalPages, page + 1))
+                  }
+                  className="rounded-md border border-slate-700 px-2 py-1 text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next →
+                </button>
+              </div>
+            </div>
+
+            {events.map((ev) => {
+              const metric =
+                typeof ev.details?.metric === "string" ? ev.details.metric : null;
+              return (
               <article
                 key={ev.id}
                 className="rounded-xl border border-slate-800 bg-slate-900/50 p-4"
@@ -495,6 +634,11 @@ export default function App() {
                   >
                     {ev.severity}
                   </span>
+                  {metric && (
+                    <span className="rounded bg-violet-600/20 px-2 py-0.5 font-mono text-xs text-violet-200">
+                      {metric}
+                    </span>
+                  )}
                   <span className="text-slate-500">
                     {new Date(ev.event_at).toLocaleString()}
                   </span>
@@ -506,9 +650,10 @@ export default function App() {
                   </pre>
                 )}
               </article>
-            ))}
-            {events.length === 0 && (
-              <p className="text-slate-500">No events in selected time range.</p>
+            );
+            })}
+            {!eventsLoading && events.length === 0 && (
+              <p className="text-slate-500">No events match the selected filters.</p>
             )}
           </div>
         )}
