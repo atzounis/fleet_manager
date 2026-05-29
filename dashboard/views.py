@@ -178,6 +178,15 @@ class EventListView(generics.ListAPIView):
         device_id = self.request.query_params.get("device_id")
         if device_id:
             qs = qs.filter(device_id=device_id)
+
+        severity = self.request.query_params.get("severity")
+        if severity in FleetEvent.Severity.values:
+            qs = qs.filter(severity=severity)
+
+        metric = self.request.query_params.get("metric", "").strip()
+        if metric:
+            qs = qs.filter(details__metric=metric)
+
         hours = self.request.query_params.get("hours")
         if hours:
             try:

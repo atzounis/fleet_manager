@@ -9,8 +9,9 @@ Built with **Django 5**, **Celery**, **PostgreSQL**, **Redis**, and **S3-compati
 | Capability | Agent endpoint | Description |
 |------------|----------------|-------------|
 | **Crash reports** | `POST /api/v1/agent/crash-report/` | Binary core dump upload → S3 → async `xtensa-esp32-elf-gdb` symbolication |
-| **Heartbeats** | `POST /api/v1/agent/heartbeat/` | CBOR metrics (heap, RSSI, battery) buffered in Redis, flushed to Postgres every 60s |
+| **Heartbeats** | `POST /api/v1/agent/heartbeat/` | CBOR metrics (heap, RSSI, battery) buffered in Redis, flushed to Postgres every 60s; response may include a one-shot **remote command** (e.g. reboot) |
 | **OTA pull** | `GET /api/v1/agent/ota-check/` | `302` redirect to a signed firmware URL when a newer build exists for the device cohort |
+| **Remote reboot** | (via heartbeat response) | Dashboard queues reboot; device applies on next heartbeat (~60s) with `command_id` dedup |
 
 Devices are identified by their **6-byte factory MAC** as a 12-character lowercase hex string (e.g. `240ac4a1b2c3`).
 
@@ -22,7 +23,7 @@ Fleet Manager splits traffic into two planes: an **agent plane** (ESP32 devices,
 
 ```mermaid
 flowchart TB
-  subgraph devices [ESP32 Fleet]
+  subgraph devices [ESP32 / ESP8266 Fleet]
     ESP[Device SDK]
   end
 
@@ -83,7 +84,11 @@ sequenceDiagram
 
   D->>W: POST /agent/heartbeat/ (CBOR)
   W->>R: XADD fleet:heartbeats:stream
-  W-->>D: 200 OK
+  alt pending remote command
+    W-->>D: 200 {"status":"ok","command":"reboot","command_id":"42"}
+  else no command
+    W-->>D: 200 {"status":"ok"}
+  end
   C->>C: flush every 60s
   C->>R: XRANGE + XDEL batch
   C->>P: bulk_create HeartbeatMetric
@@ -144,6 +149,9 @@ OTA matching uses **semantic versioning** per `hw_version` and **cohort**. Devic
 | `HeartbeatMetric` | Time-series rows: heap, min heap, RSSI, battery (indexed columns, not JSON) |
 | `CrashReport` | S3 keys, panic reason, symbolication status/trace |
 | `FirmwareRelease` | Version + `hw_version` + cohort + `s3_key` for the binary in object storage |
+| `TelemetryThresholdConfig` | Per-**HW version** alert thresholds (heap, RSSI, battery, CPU temp) for charts and breach events |
+| `DeviceCommand` | Queued remote actions (`reboot`) delivered once per heartbeat |
+| `FleetEvent` | Connectivity, threshold breaches, OTA, crash, and reboot events for the Events tab |
 
 ### Docker topology (production compose)
 
@@ -182,7 +190,6 @@ fleet_manager/
 ├── images/               # README screenshots (hardware setup, dashboard, OTA)
 ├── scripts/              # stop-local.sh, simulate_heartbeat.py
 ├── docker/               # Gunicorn entrypoint, nginx config for frontend image
-├── scripts/              # stop-local.sh — free ports before compose up
 ├── docker-compose.yml    # Full production stack
 ├── manage.py
 ├── requirements.txt
@@ -502,6 +509,23 @@ Dashboard views from a local run:
 
 For a full **USB → export → deploy → device reboot → dashboard completed** walkthrough with Serial Monitor proof, see [OTA through the dashboard (end-to-end)](#ota-through-the-dashboard-end-to-end) above.
 
+### Dashboard (React UI)
+
+The SPA at **http://localhost:61294** (or `FRONTEND_PORT`) has four tabs:
+
+| Tab | What you can do |
+|-----|-----------------|
+| **Devices** | Fleet overview, per-device telemetry charts, **zoom in/out** (up to ~1 week of history), **Older / Newer / Latest** navigation, **Restart device** (online devices only) |
+| **Events** | Paginated event log (50 per page) with filters: **device**, **time range**, **severity**, **metric** (threshold breaches) |
+| **Firmware** | Upload `.bin`, deploy OTA to selected devices (match **HW version** — `1.0` for ESP32, **`8266`** for ESP8266) |
+| **Settings** | Per device-type thresholds (ESP32 vs ESP8266) that drive chart red lines and `threshold_breach` alerts |
+
+**Remote restart:** On the Devices tab, select an online device and click **Restart device**. The platform queues a reboot; the agent receives it on the next heartbeat (~60s), stores the `command_id` in EEPROM/NVS so the same command cannot reboot the device twice, waits 1s, then calls `ESP.restart()` / `esp_restart()` outside the HTTP handler.
+
+**Telemetry charts:** Default window is ~1 hour of points; use **Zoom out** to see up to ~7 days (requires that much history in Postgres). Use **← Older** to pan backward through retained data.
+
+**Events filters:** **Metric** applies to `threshold_breach` events (`heap_free_bytes`, `wifi_rssi_dbm`, `battery_voltage_mv`, `cpu_temperature_c`). Combine with **severity** to narrow warnings vs critical issues.
+
 ### ESP32 gets HTTP 400 on heartbeat or crash-report
 
 If Serial shows `[heartbeat] HTTP 400` or `[crash-report] HTTP 400` while Wi‑Fi is connected, Django is usually rejecting the **Host** header. The device calls `http://<your-lan-ip>:52841`, so that IP must be listed in `ALLOWED_HOSTS`.
@@ -545,6 +569,24 @@ CBOR map fields:
 - `battery_mv` (uint, optional) — battery voltage in millivolts  
 - `cpu_temp_c` (int, optional) — CPU temperature in Celsius  
 
+**Response (JSON):**
+
+```json
+{"status": "ok"}
+```
+
+When a remote command is pending (e.g. dashboard **Restart device**):
+
+```json
+{
+  "status": "ok",
+  "command": "reboot",
+  "command_id": "42"
+}
+```
+
+The agent must persist `command_id` (EEPROM on ESP8266, NVS on ESP32 / ESP-IDF) and ignore duplicates. Reboot is deferred to the main loop with a ~1s delay after the HTTP transaction completes.
+
 ### Crash report
 
 ```http
@@ -572,16 +614,40 @@ Database or storage failures return **503** so devices back off instead of retry
 
 Base path: `/api/v1/dashboard/`
 
-- `GET /stats/` — fleet summary  
-- `GET /devices/` — device list  
-- `GET /devices/{device_id}/metrics/` — heartbeat history  
-- `GET /crashes/` — crash reports  
-- `GET /firmware/` — firmware releases  
-- `GET /cohorts/` — rollout cohorts  
-- `GET /ota/deployments/` — OTA deployment history  
-- `POST /ota/deployments/` — upload `.bin`, version, hw version, and target `device_ids` (multipart form)
+| Endpoint | Description |
+|----------|-------------|
+| `GET /stats/` | Fleet summary and default threshold snapshot |
+| `GET /devices/` | Device list |
+| `GET /devices/{device_id}/metrics/` | Heartbeat history (`limit`, optional `end` cursor for paging backward in time) |
+| `POST /devices/{device_id}/commands/` | Queue remote command, e.g. `{"command":"reboot"}` |
+| `PATCH /devices/{device_id}/label/` | Update device label |
+| `GET /events/` | Paginated events (`page`, `device_id`, `hours`, `severity`, `metric`) |
+| `GET /crashes/` | Crash reports |
+| `GET /firmware/` | Firmware releases |
+| `GET /cohorts/` | Rollout cohorts |
+| `GET /ota/deployments/` | OTA deployment history |
+| `POST /ota/deployments/` | Upload `.bin`, version, hw version, and target `device_ids` (multipart form) |
+| `GET /thresholds/` | List per-HW threshold profiles (`?hw_version=8266` for one) |
+| `POST /thresholds/` | Save thresholds for a given `hw_version` |
 
-From the dashboard **Firmware** tab you can upload `FleetManagerAgent.ino.bin`, select devices, and queue an update without using Django admin. Cohort-based rollouts via admin still work for devices assigned to a cohort.
+**Events query parameters:**
+
+| Parameter | Example | Purpose |
+|-----------|---------|---------|
+| `page` | `2` | Page number (50 events per page) |
+| `device_id` | `240ac4a1b2c3` | Filter to one device |
+| `hours` | `24` | Last N hours (max 30 days) |
+| `severity` | `warning` | `info`, `warning`, or `critical` |
+| `metric` | `heap_free_bytes` | Threshold breach field in `details.metric` |
+
+**Metrics query parameters:**
+
+| Parameter | Example | Purpose |
+|-----------|---------|---------|
+| `limit` | `48` | Number of heartbeat points (up to 10080 ≈ 1 week at 1/min) |
+| `end` | ISO timestamp | Return points strictly before this time (chart **Older** navigation) |
+
+From the dashboard **Firmware** tab you can upload `FleetManagerAgent.ino.bin` or `FleetManagerAgent8266.ino.bin`, select devices, and queue an update without using Django admin. Cohort-based rollouts via admin still work for devices assigned to a cohort.
 
 ## Firmware SDK
 
@@ -597,12 +663,17 @@ See [`.env.example`](.env.example) for `DATABASE_URL`, `REDIS_URL`, S3/MinIO cre
 
 Devices are considered offline when no heartbeat arrives for `EXPECTED_INTERVAL * MISSED_ITERATIONS` seconds.
 
-Telemetry charts also support configurable red dashed threshold lines:
+Telemetry charts and `threshold_breach` events use per-HW profiles (editable in **Settings**). Env defaults when no DB row exists:
 
-- `THRESHOLD_HEAP_FREE_BYTES_MIN`
-- `THRESHOLD_WIFI_RSSI_DBM_MIN`
-- `THRESHOLD_BATTERY_VOLTAGE_MV_MIN`
-- `THRESHOLD_CPU_TEMPERATURE_C_MAX`
+| Variable | Default | Notes |
+|----------|---------|--------|
+| `THRESHOLD_HEAP_FREE_BYTES_MIN` | `50000` | ESP32-class devices (`hw_version` `1.0`) |
+| `THRESHOLD_HEAP_FREE_BYTES_MIN_8266` | `35000` | ESP8266 — much less RAM than ESP32 |
+| `THRESHOLD_WIFI_RSSI_DBM_MIN` | `-75` | Both families |
+| `THRESHOLD_BATTERY_VOLTAGE_MV_MIN` | `3600` | Both families |
+| `THRESHOLD_CPU_TEMPERATURE_C_MAX` | `75` | Both families |
+
+Use **Settings → Device type** to tune ESP32 (`1.0`) and ESP8266 (`8266`) separately so 8266 devices are not flagged for low heap at ESP32 limits.
 
 ## License
 

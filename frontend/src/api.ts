@@ -123,8 +123,27 @@ export interface OtaDeployment {
 
 export interface Paginated<T> {
   count: number;
+  next?: string | null;
+  previous?: string | null;
   results: T[];
 }
+
+export const EVENT_PAGE_SIZE = 50;
+
+export const EVENT_SEVERITY_OPTIONS = [
+  { value: "", label: "All severities" },
+  { value: "info", label: "Info" },
+  { value: "warning", label: "Warning" },
+  { value: "critical", label: "Critical" },
+] as const;
+
+export const EVENT_METRIC_OPTIONS = [
+  { value: "", label: "All metrics" },
+  { value: "heap_free_bytes", label: "Heap free" },
+  { value: "wifi_rssi_dbm", label: "Wi-Fi RSSI" },
+  { value: "battery_voltage_mv", label: "Battery voltage" },
+  { value: "cpu_temperature_c", label: "CPU temperature" },
+] as const;
 
 export const CHART_MAX_HISTORY_DAYS = 7;
 export const CHART_MAX_LIMIT = 10080;
@@ -165,10 +184,19 @@ export const api = {
     );
   },
   crashes: () => fetchJson<Paginated<CrashReport>>("/crashes/"),
-  events: (params?: { deviceId?: string; hours?: number }) => {
+  events: (params?: {
+    deviceId?: string;
+    hours?: number;
+    page?: number;
+    severity?: string;
+    metric?: string;
+  }) => {
     const qs = new URLSearchParams();
     if (params?.deviceId) qs.set("device_id", params.deviceId);
     if (params?.hours) qs.set("hours", String(params.hours));
+    if (params?.page && params.page > 1) qs.set("page", String(params.page));
+    if (params?.severity) qs.set("severity", params.severity);
+    if (params?.metric) qs.set("metric", params.metric);
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return fetchJson<Paginated<FleetEvent>>(`/events/${suffix}`);
   },
