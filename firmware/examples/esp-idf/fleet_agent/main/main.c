@@ -13,6 +13,7 @@
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "fleet_http.h"
+#include "fleet_command.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
@@ -61,6 +62,7 @@ static void heartbeat_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(3000));
     for (;;) {
         fleet_http_send_heartbeat();
+        fleet_http_process_pending_reboot();
         vTaskDelay(pdMS_TO_TICKS(interval_ms));
     }
 }
@@ -105,6 +107,7 @@ void app_main(void)
 #endif
 
     bool boot_hb_ok = fleet_http_send_heartbeat();
+    fleet_http_process_pending_reboot();
     if (s_running_pending_verify) {
         if (boot_hb_ok) {
             ESP_ERROR_CHECK(esp_ota_mark_app_valid_cancel_rollback());

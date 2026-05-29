@@ -119,6 +119,7 @@ class TelemetryThresholdConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = TelemetryThresholdConfig
         fields = (
+            "hw_version",
             "heap_free_bytes_min",
             "wifi_rssi_dbm_min",
             "battery_voltage_mv_min",

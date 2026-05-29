@@ -5,24 +5,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.utils import timezone
 
-from fleet.models import Device, FleetEvent, HeartbeatMetric, TelemetryThresholdConfig
-
-
-def current_thresholds() -> dict[str, int]:
-    config = TelemetryThresholdConfig.objects.order_by("-updated_at").first()
-    if config:
-        return {
-            "heap_free_bytes_min": config.heap_free_bytes_min,
-            "wifi_rssi_dbm_min": config.wifi_rssi_dbm_min,
-            "battery_voltage_mv_min": config.battery_voltage_mv_min,
-            "cpu_temperature_c_max": config.cpu_temperature_c_max,
-        }
-    return {
-        "heap_free_bytes_min": settings.THRESHOLD_HEAP_FREE_BYTES_MIN,
-        "wifi_rssi_dbm_min": settings.THRESHOLD_WIFI_RSSI_DBM_MIN,
-        "battery_voltage_mv_min": settings.THRESHOLD_BATTERY_VOLTAGE_MV_MIN,
-        "cpu_temperature_c_max": settings.THRESHOLD_CPU_TEMPERATURE_C_MAX,
-    }
+from fleet.models import Device, FleetEvent, HeartbeatMetric
 
 
 def create_event(
@@ -110,6 +93,7 @@ def record_threshold_breaches(
                 "threshold": threshold,
                 "direction": direction,
                 "recorded_at": heartbeat.recorded_at.isoformat(),
+                "hw_version": device.hw_version,
             },
         )
 

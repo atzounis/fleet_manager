@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from fleet.models import CrashReport, FleetEvent
 from fleet.models import OtaDeployment, OtaDeploymentTarget
+from fleet.services.commands import deliver_pending_command
 from fleet.services.devices import get_or_create_device, normalize_device_id
 from fleet.services.events import create_event
 from fleet.services.firmware import find_ota_release
@@ -106,7 +107,7 @@ class HeartbeatView(View):
         fw_version = request.headers.get("X-Fw-Version") or payload.get("fw_version")
 
         try:
-            get_or_create_device(
+            device = get_or_create_device(
                 device_id,
                 hw_version=str(hw_version) if hw_version else None,
                 fw_version=str(fw_version) if fw_version else None,
@@ -117,7 +118,15 @@ class HeartbeatView(View):
         except Exception:
             return _service_unavailable("Telemetry buffer unavailable.")
 
-        return JsonResponse({"status": "ok"})
+        response: dict[str, str] = {"status": "ok"}
+        try:
+            delivery = deliver_pending_command(device)
+            if delivery:
+                response.update(delivery)
+        except (DatabaseError, OperationalError):
+            return _service_unavailable()
+
+        return JsonResponse(response)
 
 
 @method_decorator(csrf_exempt, name="dispatch")

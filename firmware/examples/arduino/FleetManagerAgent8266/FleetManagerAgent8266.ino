@@ -22,6 +22,7 @@
 #include <WiFiClient.h>
 
 #include "fleet_cbor.h"
+#include "fleet_command.h"
 #include "secrets.h"
 
 #ifndef FLEET_BATTERY_ADC_PIN
@@ -205,21 +206,25 @@ static bool send_heartbeat()
     int code = http.POST(body, len);
 
     if (code == 200) {
+        String response = http.getString();
         Serial.printf(
             "[heartbeat] OK heap=%lu min_heap=%lu rssi=%d batt=%u mV\n",
             (unsigned long)t.heap_free,
             (unsigned long)t.heap_min_free,
             (int)t.wifi_rssi,
             (unsigned)t.battery_mv);
-    } else {
-        Serial.printf(
-            "[heartbeat] HTTP %d body: %s\n",
-            code,
-            http.getString().c_str());
+        http.end();
+        fleet_command_handle_heartbeat_response(response);
+        return true;
     }
 
+    Serial.printf(
+        "[heartbeat] HTTP %d body: %s\n",
+        code,
+        http.getString().c_str());
+
     http.end();
-    return code == 200;
+    return false;
 }
 
 static bool send_test_crash()
@@ -446,6 +451,8 @@ void setup()
 
 void loop()
 {
+    fleet_command_process_pending_reboot();
+
     if (!wifi_connect()) {
         delay(5000);
         return;

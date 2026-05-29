@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   api,
+  CHART_DEFAULT_ZOOM_INDEX,
+  CHART_MAX_HISTORY_DAYS,
+  CHART_ZOOM_LEVELS,
   Device,
   FleetEvent,
   FleetStats,
@@ -8,6 +11,7 @@ import {
   Heartbeat,
   OtaDeployment,
   ThresholdConfig,
+  THRESHOLD_HW_PROFILES,
 } from "./api";
 import { DeviceChart } from "./components/DeviceChart";
 import { StatCard } from "./components/StatCard";
@@ -36,7 +40,14 @@ export default function App() {
   const [deployments, setDeployments] = useState<OtaDeployment[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<Heartbeat[]>([]);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [chartEndBefore, setChartEndBefore] = useState<string | null>(null);
+  const [chartNavStack, setChartNavStack] = useState<(string | null)[]>([]);
+  const [chartZoomIndex, setChartZoomIndex] = useState(CHART_DEFAULT_ZOOM_INDEX);
+  const chartMetricsLimit = CHART_ZOOM_LEVELS[chartZoomIndex];
   const [tab, setTab] = useState<Tab>("devices");
+  const [thresholdConfigs, setThresholdConfigs] = useState<Record<string, ThresholdConfig>>({});
+  const [settingsHwVersion, setSettingsHwVersion] = useState("1.0");
   const [thresholds, setThresholds] = useState<ThresholdConfig | null>(null);
   const [savingThresholds, setSavingThresholds] = useState(false);
   const [otaVersion, setOtaVersion] = useState("");
@@ -51,10 +62,14 @@ export default function App() {
   const [eventHoursFilter, setEventHoursFilter] = useState<number>(24);
   const [error, setError] = useState<string | null>(null);
   const [thresholdError, setThresholdError] = useState<string | null>(null);
+  const [thresholdSuccess, setThresholdSuccess] = useState<string | null>(null);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [editingLabel, setEditingLabel] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [savingLabel, setSavingLabel] = useState(false);
+  const [rebootMessage, setRebootMessage] = useState<string | null>(null);
+  const [rebootError, setRebootError] = useState<string | null>(null);
+  const [queuingReboot, setQueuingReboot] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -76,17 +91,11 @@ export default function App() {
       setEvents(c.results);
       setFirmware(f.results);
       setDeployments(od.results);
-      setThresholds((current) => ({
-        heap_free_bytes_min: s.thresholds.heap_free_bytes_min,
-        wifi_rssi_dbm_min: s.thresholds.wifi_rssi_dbm_min,
-        battery_voltage_mv_min: s.thresholds.battery_voltage_mv_min,
-        cpu_temperature_c_max: s.thresholds.cpu_temperature_c_max,
-        updated_at: current?.updated_at ?? null,
-      }));
-      // Best-effort fetch; do not block dashboard if this endpoint briefly fails.
-      api.thresholds()
-        .then((th) => {
-          setThresholds(th);
+      api.thresholdsList()
+        .then((response) => {
+          setThresholdConfigs(
+            Object.fromEntries(response.results.map((row) => [row.hw_version, row]))
+          );
           setThresholdError(null);
         })
         .catch(() => null);
@@ -105,11 +114,131 @@ export default function App() {
   }, [load]);
 
   useEffect(() => {
-    if (!selectedId) return;
-    api.metrics(selectedId).then((r) => setMetrics([...r.results].reverse()));
+    if (tab !== "settings") return;
+    setThresholdSuccess(null);
+    api
+      .thresholds(settingsHwVersion)
+      .then((config) => {
+        setThresholds(config);
+        setThresholdConfigs((current) => ({
+          ...current,
+          [config.hw_version]: config,
+        }));
+        setThresholdError(null);
+      })
+      .catch((e) => {
+        setThresholdError(e instanceof Error ? e.message : "Failed to load thresholds");
+      });
+  }, [tab, settingsHwVersion]);
+
+  useEffect(() => {
+    if (!thresholdSuccess) return;
+    const timer = window.setTimeout(() => setThresholdSuccess(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [thresholdSuccess]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setMetrics([]);
+      return;
+    }
+    setMetricsLoading(true);
+    api
+      .metrics(selectedId, {
+        limit: chartMetricsLimit,
+        end: chartEndBefore ?? undefined,
+      })
+      .then((r) => setMetrics([...r.results].reverse()))
+      .catch(() => setMetrics([]))
+      .finally(() => setMetricsLoading(false));
+  }, [selectedId, chartEndBefore, chartMetricsLimit]);
+
+  useEffect(() => {
+    setChartEndBefore(null);
+    setChartNavStack([]);
+    setChartZoomIndex(CHART_DEFAULT_ZOOM_INDEX);
+  }, [selectedId]);
+
+  const chartHistoryMinMs = Date.now() - CHART_MAX_HISTORY_DAYS * 24 * 60 * 60 * 1000;
+  const chartCanPrev =
+    metrics.length > 0 &&
+    new Date(metrics[0].recorded_at).getTime() > chartHistoryMinMs + 1000;
+  const chartCanNext = chartEndBefore !== null || chartNavStack.length > 0;
+
+  const goChartOlder = () => {
+    if (!chartCanPrev || metrics.length === 0) return;
+    setChartNavStack((stack) => [...stack, chartEndBefore]);
+    setChartEndBefore(metrics[0].recorded_at);
+  };
+
+  const goChartNewer = () => {
+    if (!chartCanNext) return;
+    if (chartNavStack.length === 0) {
+      setChartEndBefore(null);
+      return;
+    }
+    const nextStack = [...chartNavStack];
+    const previousEnd = nextStack.pop() ?? null;
+    setChartNavStack(nextStack);
+    setChartEndBefore(previousEnd);
+  };
+
+  const goChartLatest = () => {
+    setChartEndBefore(null);
+    setChartNavStack([]);
+  };
+
+  const chartCanZoomIn = chartZoomIndex > 0;
+  const chartCanZoomOut = chartZoomIndex < CHART_ZOOM_LEVELS.length - 1;
+
+  const goChartZoomIn = () => {
+    if (!chartCanZoomIn) return;
+    setChartZoomIndex((index) => index - 1);
+    goChartLatest();
+  };
+
+  const goChartZoomOut = () => {
+    if (!chartCanZoomOut) return;
+    setChartZoomIndex((index) => index + 1);
+    goChartLatest();
+  };
+
+  const queueDeviceRestart = async () => {
+    if (!selectedId || !selected?.is_online) return;
+    const label = selected.label || selected.device_id;
+    if (
+      !window.confirm(
+        `Queue a remote restart for ${label}?\n\nThe device will reboot on its next heartbeat (about 60 seconds).`
+      )
+    ) {
+      return;
+    }
+    setQueuingReboot(true);
+    setRebootError(null);
+    setRebootMessage(null);
+    try {
+      await api.queueDeviceReboot(selectedId);
+      setRebootMessage(
+        `Restart queued for ${label}. Expect reboot within ~60s on the next heartbeat.`
+      );
+    } catch (e) {
+      setRebootError(e instanceof Error ? e.message : "Failed to queue restart");
+    } finally {
+      setQueuingReboot(false);
+    }
+  };
+
+  useEffect(() => {
+    setRebootMessage(null);
+    setRebootError(null);
   }, [selectedId]);
 
   const selected = devices.find((d) => d.device_id === selectedId);
+  const chartThresholds =
+    (selected && thresholdConfigs[selected.hw_version]) || stats?.thresholds;
+  const settingsProfileLabel =
+    THRESHOLD_HW_PROFILES.find((profile) => profile.hw_version === settingsHwVersion)
+      ?.label ?? `HW ${settingsHwVersion}`;
   const toggleOtaTarget = (deviceId: string) => {
     setOtaTargets((current) =>
       current.includes(deviceId)
@@ -250,9 +379,67 @@ export default function App() {
                 )}
               </ul>
             </div>
-            <div className="lg:col-span-2">
-              {selected && metrics.length > 0 && stats ? (
-                <DeviceChart device={selected} metrics={metrics} thresholds={stats.thresholds} />
+            <div className="lg:col-span-2 space-y-3">
+              {rebootMessage && (
+                <p className="rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200">
+                  {rebootMessage}
+                </p>
+              )}
+              {rebootError && (
+                <p className="rounded-lg border border-red-800/60 bg-red-950/40 px-3 py-2 text-xs text-red-200">
+                  {rebootError}
+                </p>
+              )}
+              {selected && stats && chartThresholds ? (
+                metrics.length > 0 ? (
+                  <DeviceChart
+                    device={selected}
+                    metrics={metrics}
+                    thresholds={chartThresholds}
+                    loading={metricsLoading}
+                    canPrev={chartCanPrev}
+                    canNext={chartCanNext}
+                    onPrev={goChartOlder}
+                    onNext={goChartNewer}
+                    onLatest={goChartLatest}
+                    zoomLabel={chartMetricsLimit}
+                    canZoomIn={chartCanZoomIn}
+                    canZoomOut={chartCanZoomOut}
+                    onZoomIn={goChartZoomIn}
+                    onZoomOut={goChartZoomOut}
+                    onRestart={queueDeviceRestart}
+                    canRestart={selected.is_online}
+                    restarting={queuingReboot}
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+                      <p className="text-sm text-slate-400">
+                        {metricsLoading
+                          ? "Loading telemetry…"
+                          : "No telemetry in this time window"}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={!chartCanNext || metricsLoading}
+                          onClick={goChartNewer}
+                          className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Newer →
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!chartCanNext || metricsLoading}
+                          onClick={goChartLatest}
+                          className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Latest
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
               ) : (
                 <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-slate-700 text-slate-500">
                   Select a device with telemetry history
@@ -581,7 +768,27 @@ export default function App() {
               Threshold Configuration
             </h2>
             <p className="text-xs text-slate-500">
-              These values control the red dashed region lines in telemetry charts.
+              Thresholds are applied per device type (HW version). Charts and breach
+              alerts use the profile that matches each device&apos;s reported HW.
+            </p>
+
+            <label className="block text-sm">
+              <span className="mb-1 block text-slate-400">Device type</span>
+              <select
+                value={settingsHwVersion}
+                onChange={(e) => setSettingsHwVersion(e.target.value)}
+                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
+              >
+                {THRESHOLD_HW_PROFILES.map((profile) => (
+                  <option key={profile.hw_version} value={profile.hw_version}>
+                    {profile.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <p className="text-xs text-slate-500">
+              Editing <span className="text-slate-300">{settingsProfileLabel}</span>
             </p>
 
             <label className="block text-sm">
@@ -590,12 +797,13 @@ export default function App() {
                 type="number"
                 className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
                 value={thresholds.heap_free_bytes_min}
-                onChange={(e) =>
+                onChange={(e) => {
+                  setThresholdSuccess(null);
                   setThresholds({
                     ...thresholds,
                     heap_free_bytes_min: Number(e.target.value),
-                  })
-                }
+                  });
+                }}
               />
             </label>
 
@@ -605,12 +813,13 @@ export default function App() {
                 type="number"
                 className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
                 value={thresholds.wifi_rssi_dbm_min}
-                onChange={(e) =>
+                onChange={(e) => {
+                  setThresholdSuccess(null);
                   setThresholds({
                     ...thresholds,
                     wifi_rssi_dbm_min: Number(e.target.value),
-                  })
-                }
+                  });
+                }}
               />
             </label>
 
@@ -620,12 +829,13 @@ export default function App() {
                 type="number"
                 className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
                 value={thresholds.battery_voltage_mv_min}
-                onChange={(e) =>
+                onChange={(e) => {
+                  setThresholdSuccess(null);
                   setThresholds({
                     ...thresholds,
                     battery_voltage_mv_min: Number(e.target.value),
-                  })
-                }
+                  });
+                }}
               />
             </label>
 
@@ -635,12 +845,13 @@ export default function App() {
                 type="number"
                 className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2"
                 value={thresholds.cpu_temperature_c_max}
-                onChange={(e) =>
+                onChange={(e) => {
+                  setThresholdSuccess(null);
                   setThresholds({
                     ...thresholds,
                     cpu_temperature_c_max: Number(e.target.value),
-                  })
-                }
+                  });
+                }}
               />
             </label>
 
@@ -651,15 +862,25 @@ export default function App() {
                 onClick={async () => {
                   setSavingThresholds(true);
                   setThresholdError(null);
+                  setThresholdSuccess(null);
                   try {
-                    await api.updateThresholds({
+                    const saved = await api.updateThresholds({
+                      hw_version: settingsHwVersion,
                       heap_free_bytes_min: thresholds.heap_free_bytes_min,
                       wifi_rssi_dbm_min: thresholds.wifi_rssi_dbm_min,
                       battery_voltage_mv_min: thresholds.battery_voltage_mv_min,
                       cpu_temperature_c_max: thresholds.cpu_temperature_c_max,
+                      updated_at: null,
                     });
-                    await load();
+                    setThresholds(saved);
+                    setThresholdConfigs((current) => ({
+                      ...current,
+                      [saved.hw_version]: saved,
+                    }));
                     setThresholdError(null);
+                    setThresholdSuccess(
+                      `Thresholds saved for ${settingsProfileLabel}.`
+                    );
                   } catch (e) {
                     setThresholdError(
                       e instanceof Error ? e.message : "Failed to save threshold settings"
@@ -678,6 +899,11 @@ export default function App() {
                 </span>
               )}
             </div>
+            {thresholdSuccess && (
+              <p className="text-xs text-emerald-300" role="status">
+                {thresholdSuccess}
+              </p>
+            )}
             {thresholdError && (
               <p className="text-xs text-red-300">
                 {thresholdError} — threshold save failed, please retry.

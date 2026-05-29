@@ -9,6 +9,7 @@ from .models import (
     HeartbeatMetric,
     OtaDeployment,
     OtaDeploymentTarget,
+    DeviceCommand,
     TelemetryThresholdConfig,
 )
 
@@ -60,13 +61,20 @@ class CrashReportAdmin(admin.ModelAdmin):
 @admin.register(TelemetryThresholdConfig)
 class TelemetryThresholdConfigAdmin(admin.ModelAdmin):
     list_display = (
-        "id",
+        "hw_version",
         "heap_free_bytes_min",
         "wifi_rssi_dbm_min",
         "battery_voltage_mv_min",
         "cpu_temperature_c_max",
         "updated_at",
     )
+
+
+@admin.register(DeviceCommand)
+class DeviceCommandAdmin(admin.ModelAdmin):
+    list_display = ("id", "device", "command", "status", "created_at", "delivered_at")
+    list_filter = ("command", "status")
+    search_fields = ("device__device_id",)
 
 
 @admin.register(FleetEvent)
