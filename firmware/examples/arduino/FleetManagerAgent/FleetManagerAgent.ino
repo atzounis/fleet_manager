@@ -4,11 +4,12 @@
  * Features:
  * - MAC-address based unique device ID
  * - Optional human-readable device name
- * - WiFi heartbeat telemetry
- * - CBOR payloads
+ * - WiFi heartbeat telemetry (CBOR)
+ * - X-Device-Token auth (register device in dashboard first)
  * - OTA check + apply (HTTPUpdate), polls every FLEET_OTA_MS
  * - ESP32 internal temperature reading
  * - Optional battery voltage monitoring
+ * - Remote reboot via heartbeat command
  *
  * Tested for:
  * - ESP32-WROVER
@@ -34,6 +35,10 @@ uint8_t temprature_sens_read();
 #include "fleet_cbor.h"
 #include "fleet_command.h"
 #include "secrets.h"
+
+#ifndef FLEET_DEVICE_TOKEN
+#error "Define FLEET_DEVICE_TOKEN in secrets.h (register device in dashboard)"
+#endif
 
 /* =========================================================
  * Defaults
@@ -76,6 +81,7 @@ struct FleetTelemetry {
  * ========================================================= */
 
 static char g_device_id[13];
+static bool g_wifi_started = false;
 
 static unsigned long g_last_heartbeat = 0;
 static unsigned long g_last_ota = 0;
@@ -127,6 +133,7 @@ static String api_url(const char *path)
 static void add_agent_headers(HTTPClient &http)
 {
     http.addHeader("X-Device-Id", g_device_id);
+    http.addHeader("X-Device-Token", FLEET_DEVICE_TOKEN);
     http.addHeader("X-Device-Name", FLEET_DEVICE_NAME);
 
     http.addHeader("X-Hw-Version", FLEET_HW_VERSION);
@@ -241,39 +248,32 @@ static FleetTelemetry collect_telemetry()
 
 static bool wifi_connect()
 {
+    if (!g_wifi_started) {
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        g_wifi_started = true;
+    }
+
     if (WiFi.status() == WL_CONNECTED) {
         return true;
     }
 
-    WiFi.mode(WIFI_STA);
-
-    WiFi.begin(
-        WIFI_SSID,
-        WIFI_PASSWORD);
-
-    Serial.printf(
-        "WiFi connecting to %s",
-        WIFI_SSID);
+    Serial.printf("WiFi connecting to %s", WIFI_SSID);
 
     for (int i = 0; i < 40; i++) {
-
         if (WiFi.status() == WL_CONNECTED) {
-
             Serial.printf(
                 "\nWiFi OK\nIP=%s RSSI=%d\n",
                 WiFi.localIP().toString().c_str(),
                 WiFi.RSSI());
-
             return true;
         }
 
         Serial.print('.');
-
         delay(500);
     }
 
     Serial.println("\nWiFi failed");
-
     return false;
 }
 
@@ -288,56 +288,45 @@ static bool send_heartbeat()
 
     uint8_t body[96];
 
-    size_t len =
+    const size_t len =
         fleet_cbor_encode_heartbeat(
             body,
             sizeof(body),
-
             t.heap_free,
             t.heap_min_free,
-
             t.wifi_rssi,
-
             t.battery_mv,
-
             t.cpu_temp_c);
 
-    HTTPClient http;
+    if (len == 0) {
+        Serial.println("[heartbeat] encode failed");
+        return false;
+    }
 
-    String url =
-        api_url("/api/v1/agent/heartbeat/");
+    HTTPClient http;
+    http.setTimeout(10000);
+
+    const String url = api_url("/api/v1/agent/heartbeat/");
 
     http.begin(url);
 
     add_agent_headers(http);
+    http.addHeader("Content-Type", "application/cbor");
 
-    http.addHeader(
-        "Content-Type",
-        "application/cbor");
+    Serial.printf("[heartbeat] device_id=%s sending...\n", g_device_id);
 
-    int code =
-        http.POST(body, len);
+    const int code = http.POST(body, len);
 
     if (code == 200) {
-
-        String response = http.getString();
+        const String response = http.getString();
 
         Serial.printf(
-            "[heartbeat] OK "
-            "heap=%lu "
-            "min_heap=%lu "
-            "rssi=%d "
-            "batt=%u mV "
-            "cpu=%dC\n",
-
+            "[heartbeat] OK device_id=%s heap=%lu min_heap=%lu rssi=%d batt=%u mV cpu=%dC\n",
+            g_device_id,
             (unsigned long)t.heap_free,
-
             (unsigned long)t.heap_min_free,
-
             (int)t.wifi_rssi,
-
             (unsigned)t.battery_mv,
-
             (int)t.cpu_temp_c);
 
         http.end();
@@ -345,14 +334,13 @@ static bool send_heartbeat()
         fleet_command_handle_heartbeat_response(response);
 
         return true;
-
-    } else {
-
-        Serial.printf(
-            "[heartbeat] HTTP %d body: %s\n",
-            code,
-            http.getString().c_str());
     }
+
+    Serial.printf(
+        "[heartbeat] device_id=%s HTTP %d body: %s\n",
+        g_device_id,
+        code,
+        http.getString().c_str());
 
     http.end();
 
@@ -373,16 +361,13 @@ static bool send_test_crash()
     };
 
     HTTPClient http;
+    http.setTimeout(10000);
 
-    String url =
-        api_url("/api/v1/agent/crash-report/");
+    const String url = api_url("/api/v1/agent/crash-report/");
 
     http.begin(url);
 
-    http.addHeader(
-        "Content-Type",
-        "application/octet-stream");
-
+    http.addHeader("Content-Type", "application/octet-stream");
     add_agent_headers(http);
 
     http.addHeader(
@@ -422,9 +407,9 @@ static void report_ota_status(
     const String &error)
 {
     HTTPClient http;
+    http.setTimeout(10000);
 
-    String url =
-        api_url("/api/v1/agent/ota-report/");
+    const String url = api_url("/api/v1/agent/ota-report/");
 
     http.begin(url);
 
@@ -526,8 +511,9 @@ static bool apply_ota_update(
 static bool check_ota()
 {
     HTTPClient http;
+    http.setTimeout(10000);
 
-    String url =
+    const String url =
         api_url("/api/v1/agent/ota-check/?device_id=") +
         g_device_id +
         "&hw_version=" +
@@ -535,9 +521,7 @@ static bool check_ota()
         "&fw_version=" +
         FLEET_FW_VERSION;
 
-    Serial.printf(
-        "[ota] checking for update (fw %s)...\n",
-        FLEET_FW_VERSION);
+    Serial.printf("[ota] checking for update (fw %s)...\n", FLEET_FW_VERSION);
 
     http.begin(url);
 
@@ -546,8 +530,8 @@ static bool check_ota()
     /* Must not follow 302 — presigned URL is in Location / X-Firmware-Version. */
     http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
 
-    const char *collectKeys[] = {"X-Firmware-Version"};
-    http.collectHeaders(collectKeys, 1);
+    const char *collectKeys[] = {"X-Firmware-Version", "Location"};
+    http.collectHeaders(collectKeys, 2);
 
     int code =
         http.GET();

@@ -7,7 +7,7 @@ Reference headers and CBOR encoder under `include/` and `src/`. For immediate te
 
 ## Device identity
 
-Factory Wi-Fi MAC as 12-character lowercase hex (no colons), sent in `X-Device-Id`.
+Factory Wi-Fi MAC as 12-character lowercase hex (no colons), sent in `X-Device-Id`. Each device must be registered in the dashboard; agent requests include `X-Device-Token` from registration.
 
 ## Agent endpoints
 

@@ -27,6 +27,7 @@ static esp_err_t http_event(esp_http_client_event_t *evt)
 static void set_common_headers(esp_http_client_handle_t client)
 {
     esp_http_client_set_header(client, "X-Device-Id", s_device_id);
+    esp_http_client_set_header(client, "X-Device-Token", CONFIG_FLEET_DEVICE_TOKEN);
     esp_http_client_set_header(client, "X-Hw-Version", CONFIG_FLEET_HW_VERSION);
     esp_http_client_set_header(client, "X-Fw-Version", CONFIG_FLEET_FW_VERSION);
 }

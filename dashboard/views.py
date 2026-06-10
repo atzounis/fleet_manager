@@ -22,6 +22,7 @@ from fleet.models import (
     TelemetryThresholdConfig,
 )
 from fleet.services.commands import queue_device_command
+from fleet.services.devices import normalize_device_id, register_device, rotate_device_token
 from fleet.services.events import create_event
 from fleet.services.storage import StorageError, delete_object, upload_bytes
 from fleet.services.thresholds import current_thresholds, default_thresholds_for_hw
@@ -78,6 +79,59 @@ class DeviceListView(DashboardAuthMixin, generics.ListAPIView):
                 Q(device_id__icontains=search) | Q(label__icontains=search)
             )
         return qs
+
+
+class DeviceRegisterView(DashboardAuthMixin, APIView):
+    def post(self, request):
+        device_id_raw = request.data.get("device_id")
+        if not isinstance(device_id_raw, str) or not device_id_raw.strip():
+            return Response({"detail": "device_id is required"}, status=400)
+
+        label = request.data.get("label", "")
+        if label is not None and not isinstance(label, str):
+            return Response({"detail": "label must be a string"}, status=400)
+
+        hw_version = str(request.data.get("hw_version", "1.0")).strip() or "1.0"
+        fw_version = str(request.data.get("fw_version", "0.0.0")).strip() or "0.0.0"
+
+        cohort = None
+        cohort_name = request.data.get("cohort")
+        if cohort_name:
+            cohort = Cohort.objects.filter(name=str(cohort_name).strip()).first()
+            if cohort is None:
+                return Response({"detail": f"unknown cohort: {cohort_name}"}, status=400)
+
+        try:
+            device, token = register_device(
+                device_id_raw,
+                label=label or "",
+                hw_version=hw_version,
+                fw_version=fw_version,
+                cohort=cohort,
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+
+        payload = DeviceSerializer(device).data
+        payload["token"] = token
+        return Response(payload, status=201)
+
+
+class DeviceTokenRotateView(DashboardAuthMixin, APIView):
+    def post(self, request, device_id: str):
+        try:
+            normalized = normalize_device_id(device_id)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+
+        device = Device.objects.filter(device_id=normalized).first()
+        if not device:
+            return Response({"detail": "device not found"}, status=404)
+
+        token = rotate_device_token(device)
+        payload = DeviceSerializer(device).data
+        payload["token"] = token
+        return Response(payload)
 
 
 class DeviceLabelUpdateView(DashboardAuthMixin, APIView):

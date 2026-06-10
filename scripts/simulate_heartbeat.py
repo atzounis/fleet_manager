@@ -26,9 +26,18 @@ def main() -> None:
         default=os.environ.get("DEVICE_ID", "240ac4dead01"),
         help="12-char lowercase hex MAC",
     )
+    parser.add_argument(
+        "--device-token",
+        default=os.environ.get("FLEET_DEVICE_TOKEN", ""),
+        help="X-Device-Token from dashboard registration",
+    )
     parser.add_argument("--hw-version", default="1.0")
     parser.add_argument("--fw-version", default="1.0.0")
     args = parser.parse_args()
+
+    if not args.device_token:
+        print("FLEET_DEVICE_TOKEN is required (register device in dashboard first).", file=sys.stderr)
+        sys.exit(1)
 
     body = cbor2.dumps(
         {
@@ -46,6 +55,7 @@ def main() -> None:
         headers={
             "Content-Type": "application/cbor",
             "X-Device-Id": args.device_id,
+            "X-Device-Token": args.device_token,
             "X-Hw-Version": args.hw_version,
             "X-Fw-Version": args.fw_version,
         },

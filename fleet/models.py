@@ -43,6 +43,12 @@ class Device(models.Model):
         related_name="devices",
     )
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    token_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="SHA-256 hex digest of the device agent token (never store plaintext).",
+    )
     is_online_cached = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

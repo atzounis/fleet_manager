@@ -110,6 +110,11 @@ export interface Device {
   status: "online" | "offline";
   seconds_since_last_seen: number | null;
   offline_after_seconds: number;
+  is_provisioned: boolean;
+}
+
+export interface DeviceWithToken extends Device {
+  token: string;
 }
 
 export interface Heartbeat {
@@ -220,6 +225,34 @@ export function formatChartWindow(limit: number): string {
 export const api = {
   stats: () => fetchJson<FleetStats>("/stats/"),
   devices: () => fetchJson<Paginated<Device>>("/devices/"),
+  registerDevice: async (payload: {
+    deviceId: string;
+    label: string;
+    hwVersion: string;
+  }) => {
+    const res = await apiFetch("/devices/register/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        device_id: payload.deviceId,
+        label: payload.label,
+        hw_version: payload.hwVersion,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(await parseErrorMessage(res, "Device registration failed"));
+    }
+    const data = (await res.json()) as DeviceWithToken;
+    return { deviceId: data.device_id, token: data.token };
+  },
+  rotateDeviceToken: async (deviceId: string) => {
+    const res = await apiFetch(`/devices/${deviceId}/token/`, { method: "POST" });
+    if (!res.ok) {
+      throw new Error(await parseErrorMessage(res, "Token rotation failed"));
+    }
+    const data = (await res.json()) as DeviceWithToken;
+    return { deviceId: data.device_id, token: data.token };
+  },
   metrics: (
     deviceId: string,
     params?: { limit?: number; end?: string }

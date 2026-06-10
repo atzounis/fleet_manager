@@ -10,6 +10,12 @@ urlpatterns = [
     path("auth/session/", auth_views.SessionView.as_view(), name="dashboard-auth-session"),
     path("stats/", views.FleetStatsView.as_view(), name="fleet-stats"),
     path("devices/", views.DeviceListView.as_view(), name="device-list"),
+    path("devices/register/", views.DeviceRegisterView.as_view(), name="device-register"),
+    path(
+        "devices/<str:device_id>/token/",
+        views.DeviceTokenRotateView.as_view(),
+        name="device-token-rotate",
+    ),
     path(
         "devices/<str:device_id>/label/",
         views.DeviceLabelUpdateView.as_view(),
