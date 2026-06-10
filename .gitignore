@@ -14,3 +14,6 @@ deploy/data/db.sqlite3
 # Hetzner deploy credentials and keys (never commit)
 hetzner_creds.txt
 hetzner_keys/
+deploy_hetzner.sh
+
+firmware/examples/arduino/FleetManagerAgent8266DHT
