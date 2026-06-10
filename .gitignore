@@ -15,5 +15,6 @@ deploy/data/db.sqlite3
 hetzner_creds.txt
 hetzner_keys/
 deploy_hetzner.sh
+deploy_hetzner.sh.example
 
 firmware/examples/arduino/FleetManagerAgent8266DHT

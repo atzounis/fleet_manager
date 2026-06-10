@@ -1,5 +1,5 @@
 # Backing services for native Gunicorn/Celery on Hetzner (isolated project + ports).
-# Does not start web/frontend — those run in the app venv via deploy_hetzner.sh.
+# Does not start web/frontend — those run in the app venv on the host.
 # Usage (on server): docker compose -p fleet_manager -f deploy/docker-compose.hetzner.yml --env-file .env up -d
 
 name: fleet_manager
