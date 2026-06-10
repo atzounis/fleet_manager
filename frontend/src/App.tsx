@@ -19,7 +19,9 @@ import {
 } from "./api";
 import { DeviceChart } from "./components/DeviceChart";
 import { LoginPage } from "./components/LoginPage";
+import { RegisterDeviceModal } from "./components/RegisterDeviceModal";
 import { StatCard } from "./components/StatCard";
+import { TokenRevealModal } from "./components/TokenRevealModal";
 
 type Tab = "devices" | "events" | "firmware" | "settings";
 
@@ -83,6 +85,11 @@ export default function App() {
   const [rebootError, setRebootError] = useState<string | null>(null);
   const [queuingReboot, setQueuingReboot] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showRegisterDevice, setShowRegisterDevice] = useState(false);
+  const [revealedToken, setRevealedToken] = useState<{ deviceId: string; token: string } | null>(
+    null
+  );
+  const [rotatingToken, setRotatingToken] = useState(false);
 
   useEffect(() => {
     auth
@@ -413,7 +420,16 @@ export default function App() {
         {tab === "devices" && !loading && (
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="space-y-2 lg:col-span-1">
-              <h2 className="text-sm font-medium text-slate-400">Devices</h2>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-sm font-medium text-slate-400">Devices</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowRegisterDevice(true)}
+                  className="rounded-md border border-emerald-700/60 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-950/40"
+                >
+                  + Register
+                </button>
+              </div>
               <ul className="max-h-[420px] space-y-1 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900/50 p-2">
                 {devices.map((d) => (
                   <li key={d.device_id}>
@@ -440,6 +456,11 @@ export default function App() {
                           >
                             {d.status}
                           </span>
+                          {!d.is_provisioned && (
+                            <span className="ml-1 rounded bg-amber-600/30 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-200">
+                              no token
+                            </span>
+                          )}
                           <span className="mt-0.5 block text-slate-500">
                             {d.label || "—"} · fw {d.fw_version}
                           </span>
@@ -466,8 +487,8 @@ export default function App() {
                 ))}
                 {devices.length === 0 && (
                   <li className="px-3 py-6 text-center text-slate-500 text-sm">
-                    No devices yet. Run <code className="text-emerald-400">seed_demo</code> or
-                    send a heartbeat.
+                    No devices yet. Use <strong className="text-slate-300">Register</strong> or run{" "}
+                    <code className="text-emerald-400">seed_demo</code>.
                   </li>
                 )}
               </ul>
@@ -1150,7 +1171,45 @@ export default function App() {
 
               {editError && <p className="mt-2 text-xs text-red-300">{editError}</p>}
 
-              <div className="mt-4 flex items-center justify-end gap-2">
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  disabled={rotatingToken}
+                  className="rounded-md border border-amber-700/70 px-3 py-2 text-sm text-amber-200 hover:bg-amber-950/40 disabled:opacity-50"
+                  onClick={async () => {
+                    if (!editingDevice) return;
+                    if (
+                      !window.confirm(
+                        `Issue a new agent token for ${editingDevice.device_id}? The old token stops working immediately.`
+                      )
+                    ) {
+                      return;
+                    }
+                    setRotatingToken(true);
+                    setEditError(null);
+                    try {
+                      const result = await api.rotateDeviceToken(editingDevice.device_id);
+                      setDevices((current) =>
+                        current.map((d) =>
+                          d.device_id === result.deviceId
+                            ? { ...d, is_provisioned: true }
+                            : d
+                        )
+                      );
+                      setRevealedToken(result);
+                      setEditingDevice(null);
+                    } catch (e) {
+                      setEditError(
+                        e instanceof Error ? e.message : "Failed to rotate device token"
+                      );
+                    } finally {
+                      setRotatingToken(false);
+                    }
+                  }}
+                >
+                  {rotatingToken ? "Rotating…" : "Rotate agent token"}
+                </button>
+                <div className="flex items-center gap-2">
                 <button
                   type="button"
                   className="rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
@@ -1191,9 +1250,29 @@ export default function App() {
                 >
                   {savingLabel ? "Saving..." : "Save label"}
                 </button>
+                </div>
               </div>
             </div>
           </div>
+        )}
+
+        {showRegisterDevice && (
+          <RegisterDeviceModal
+            onClose={() => setShowRegisterDevice(false)}
+            registerDevice={api.registerDevice}
+            onRegistered={(deviceId, token) => {
+              setRevealedToken({ deviceId, token });
+              void load();
+            }}
+          />
+        )}
+
+        {revealedToken && (
+          <TokenRevealModal
+            deviceId={revealedToken.deviceId}
+            token={revealedToken.token}
+            onClose={() => setRevealedToken(null)}
+          />
         )}
       </main>
     </div>

@@ -14,6 +14,12 @@ menu "Fleet Manager Agent"
         help
             Base URL of the Fleet Manager API (LAN IP of your Docker host, not 127.0.0.1).
 
+    config FLEET_DEVICE_TOKEN
+        string "Device agent token"
+        default ""
+        help
+            Per-device token from the dashboard (Register device). Required for agent API calls.
+
     config FLEET_HW_VERSION
         string "Hardware version"
         default "1.0"

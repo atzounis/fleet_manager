@@ -17,7 +17,7 @@ Never deploy an ESP32 `.bin` to ESP8266 or vice versa.
 
 - [Arduino IDE](https://www.arduino.cc/) 2.x or Arduino CLI
 - Board package: **esp8266** by ESP8266 Community (3.x)
-- Fleet Manager Docker stack on your PC
+- Fleet Manager server reachable from the device (Docker locally or Hetzner)
 
 Install the board package: **Tools → Board → Boards Manager** → search **esp8266** → install **esp8266 by ESP8266 Community**.
 
@@ -28,10 +28,21 @@ cp secrets.example.h secrets.h   # secrets.h is gitignored — stays on your mac
 ```
 
 1. Set `WIFI_SSID` / `WIFI_PASSWORD`
-2. Set `FLEET_API_HOST` to your computer's **LAN IP** (not `127.0.0.1`)
-3. Keep `FLEET_HW_VERSION` as **`8266`** unless you use a custom scheme
-4. Match `FLEET_API_PORT` to `WEB_PORT` in `.env` (default `52841`)
-5. Add your LAN IP to `ALLOWED_HOSTS` in `.env` and restart `web` (see root `README.md`)
+2. Set `FLEET_API_HOST` / `FLEET_API_PORT` (e.g. Hetzner `YOUR_HETZNER_SERVER_IP` / `8993`, or your LAN IP / `52841` for local Docker)
+3. **Register the device** in the dashboard (**Register device**) using the MAC shown in Serial after first boot, then paste the one-time token into `FLEET_DEVICE_TOKEN`
+4. Keep `FLEET_HW_VERSION` as **`8266`** unless you use a custom scheme
+5. For local Docker: add your LAN IP to `ALLOWED_HOSTS` in `.env` and restart `web` (see root `README.md`)
+
+### Agent headers (all requests)
+
+| Header | Source |
+|--------|--------|
+| `X-Device-Id` | Wi-Fi STA MAC (12 hex chars) |
+| `X-Device-Token` | `FLEET_DEVICE_TOKEN` in `secrets.h` |
+| `X-Device-Name` | `FLEET_DEVICE_NAME` |
+| `X-Hw-Version` / `X-Fw-Version` | `secrets.h` |
+
+Without a valid token the server returns **401**.
 
 ## Flash (USB)
 
@@ -46,9 +57,12 @@ Expected output:
 === Fleet Manager Arduino Agent (ESP8266) ===
 Device ID: aabbccddeeff
 HW 8266  FW 1.0.0
-[heartbeat] OK heap=... min_heap=... rssi=-50 batt=0 mV
+[heartbeat] device_id=aabbccddeeff sending...
+[heartbeat] OK device_id=aabbccddeeff heap=... min_heap=... rssi=-50 batt=0 mV
 [ota] checking for update (fw 1.0.0)...
 ```
+
+If you see `HTTP 401` with `Missing X-Device-Token`, add the token to `secrets.h` and reflash via USB (OTA cannot fix a missing token header).
 
 ## OTA from the dashboard
 
@@ -59,18 +73,4 @@ HW 8266  FW 1.0.0
 5. **HW version** = **`8266`** (must match `FLEET_HW_VERSION`)
 6. Select target device(s), **Send OTA**
 
-Set `AWS_S3_PUBLIC_ENDPOINT_URL` in `.env` to your LAN MinIO URL so devices can download the presigned binary (root `README.md`).
-
-## Optional battery (A0)
-
-On NodeMCU/Wemos, the **A0** pin accepts 0–3.3 V (scaled internally). Example:
-
-```c
-#define FLEET_BATTERY_ADC_PIN A0
-#define FLEET_BATTERY_DIVIDER_RATIO 2.0f
-```
-
-## Verify
-
-- Dashboard: http://localhost:61294 — device appears within ~60s
-- OTA success: Serial shows `update applied`, reboot, new `FW x.y.z`, dashboard target **updated**
+Cohort-based rollouts via Django admin still work for devices assigned to a cohort.

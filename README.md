@@ -551,12 +551,24 @@ A **400** with a short HTML body is typical for `DisallowedHost`. A **400** with
 
 ## Agent API reference
 
+Devices must be **registered in the dashboard** before they can call the agent API. Registration issues a per-device token (shown once). Send it on every agent request:
+
+```http
+X-Device-Token: <token from dashboard Register device>
+```
+
+| Code | Meaning |
+|------|---------|
+| **401** | Missing or invalid `X-Device-Token` |
+| **403** | Device ID not registered (or no token provisioned — rotate token in dashboard) |
+
 ### Heartbeat (CBOR)
 
 ```http
 POST /api/v1/agent/heartbeat/
 Content-Type: application/cbor
 X-Device-Id: 240ac4a1b2c3
+X-Device-Token: <device token>
 X-Hw-Version: 1.0
 X-Fw-Version: 1.0.0
 ```
@@ -593,6 +605,7 @@ The agent must persist `command_id` (EEPROM on ESP8266, NVS on ESP32 / ESP-IDF) 
 POST /api/v1/agent/crash-report/
 Content-Type: application/octet-stream
 X-Device-Id: 240ac4a1b2c3
+X-Device-Token: <device token>
 X-Panic-Reason: Guru Meditation Error: LoadProhibited
 X-Elf-S3-Key: firmware/1.0.0/build.elf   # optional, for symbolication
 ```
@@ -603,6 +616,7 @@ Body: raw binary dump. Response `202` with `{ "id", "status": "accepted" }`.
 
 ```http
 GET /api/v1/agent/ota-check/?device_id=240ac4a1b2c3&hw_version=1.0&fw_version=1.0.0
+X-Device-Token: <device token>
 ```
 
 - **204** — no update  

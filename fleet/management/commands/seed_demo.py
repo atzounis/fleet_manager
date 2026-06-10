@@ -2,6 +2,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from fleet.models import Cohort, Device, FirmwareRelease, HeartbeatMetric
+from fleet.services.device_tokens import set_device_token
 
 
 class Command(BaseCommand):
@@ -27,6 +28,10 @@ class Command(BaseCommand):
                 "last_seen_at": timezone.now(),
             },
         )
+
+        issued_token = None
+        if not device.token_hash:
+            issued_token = set_device_token(device)
 
         FirmwareRelease.objects.get_or_create(
             version="1.1.0",
@@ -57,3 +62,13 @@ class Command(BaseCommand):
                 f"Seeded cohorts ({cohort.name}, {canary.name}), device {device.device_id}, metrics, firmware."
             )
         )
+        if issued_token:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Agent token for {device.device_id} (set FLEET_DEVICE_TOKEN in secrets.h):\n{issued_token}"
+                )
+            )
+        elif device.token_hash:
+            self.stdout.write(
+                "Device already has a token. Rotate from the dashboard if you need a new one."
+            )

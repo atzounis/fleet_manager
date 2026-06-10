@@ -29,6 +29,7 @@ class DeviceSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
     seconds_since_last_seen = serializers.SerializerMethodField()
     offline_after_seconds = serializers.SerializerMethodField()
+    is_provisioned = serializers.SerializerMethodField()
 
     class Meta:
         model = Device
@@ -44,8 +45,12 @@ class DeviceSerializer(serializers.ModelSerializer):
             "status",
             "seconds_since_last_seen",
             "offline_after_seconds",
+            "is_provisioned",
             "created_at",
         )
+
+    def get_is_provisioned(self, obj: Device) -> bool:
+        return bool(obj.token_hash)
 
     def get_is_online(self, obj: Device) -> bool:
         if not obj.last_seen_at:

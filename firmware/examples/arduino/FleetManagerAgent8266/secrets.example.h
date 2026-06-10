@@ -5,9 +5,12 @@
 #define WIFI_SSID "your-wifi-ssid"
 #define WIFI_PASSWORD "your-wifi-password"
 
-/* Server host: Mac Bonjour name (.local) or LAN IP — NOT 127.0.0.1 */
-#define FLEET_API_HOST "your-mac-hostname.local"
-#define FLEET_API_PORT 52841
+/* Server host: LAN IP or hostname — NOT 127.0.0.1 from the device */
+#define FLEET_API_HOST "YOUR_HETZNER_SERVER_IP"
+#define FLEET_API_PORT 8993
+
+/* Per-device token from dashboard → Register device (shown once). */
+#define FLEET_DEVICE_TOKEN "paste-token-from-dashboard"
 
 /*
  * Use a dedicated HW version for ESP8266 so dashboard OTA never offers ESP32
@@ -15,6 +18,9 @@
  */
 #define FLEET_HW_VERSION "8266"
 #define FLEET_FW_VERSION "1.0.0"
+
+/* Optional human-readable label in the dashboard */
+#define FLEET_DEVICE_NAME "esp8266-device"
 
 /* Optional battery on A0 (NodeMCU/Wemos). Set to A0 or -1 for unknown. */
 #define FLEET_BATTERY_ADC_PIN -1
@@ -25,4 +31,4 @@
 /* #define FLEET_OTA_MS (60 * 1000UL) */
 
 /* POST a simulated crash once after boot (dashboard testing). */
-#define FLEET_SEND_TEST_CRASH 1
+/* #define FLEET_SEND_TEST_CRASH 1 */

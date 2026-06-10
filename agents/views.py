@@ -9,12 +9,14 @@ from django.views.decorators.csrf import csrf_exempt
 from fleet.models import CrashReport, FleetEvent
 from fleet.models import OtaDeployment, OtaDeploymentTarget
 from fleet.services.commands import deliver_pending_command
-from fleet.services.devices import get_or_create_device, normalize_device_id
+from fleet.services.devices import touch_device_metadata
 from fleet.services.events import create_event
 from fleet.services.firmware import find_ota_release
 from fleet.services.heartbeats import enqueue_heartbeat
 from fleet.services.storage import StorageError, make_object_key, presign_get_url, upload_bytes
 from fleet.tasks import symbolicate_crash_report
+
+from .auth import require_agent_device
 
 
 def _service_unavailable(message: str = "Service temporarily unavailable.") -> JsonResponse:
@@ -26,13 +28,9 @@ class CrashReportView(View):
     """POST binary core dump from ESP32 after panic reboot."""
 
     def post(self, request):
-        device_id_raw = request.headers.get("X-Device-Id") or request.GET.get("device_id")
-        if not device_id_raw:
-            return JsonResponse({"error": "Missing X-Device-Id header."}, status=400)
-        try:
-            device_id = normalize_device_id(device_id_raw)
-        except ValueError as exc:
-            return JsonResponse({"error": str(exc)}, status=400)
+        device, auth_error = require_agent_device(request)
+        if auth_error:
+            return auth_error
 
         dump = request.body
         if not dump:
@@ -44,10 +42,12 @@ class CrashReportView(View):
         elf_s3_key = request.headers.get("X-Elf-S3-Key", "")
 
         try:
-            device = get_or_create_device(
-                device_id, hw_version=hw_version, fw_version=fw_version
+            touch_device_metadata(
+                device,
+                hw_version=hw_version,
+                fw_version=fw_version,
             )
-            dump_key = make_object_key("crashes", device_id, ".bin")
+            dump_key = make_object_key("crashes", device.device_id, ".bin")
             upload_bytes(dump_key, dump, content_type="application/octet-stream")
             report = CrashReport.objects.create(
                 device=device,
@@ -79,13 +79,9 @@ class HeartbeatView(View):
     """POST CBOR telemetry: heap, RSSI, battery, and optional CPU thermals."""
 
     def post(self, request):
-        device_id_raw = request.headers.get("X-Device-Id") or request.GET.get("device_id")
-        if not device_id_raw:
-            return JsonResponse({"error": "Missing X-Device-Id header."}, status=400)
-        try:
-            device_id = normalize_device_id(device_id_raw)
-        except ValueError as exc:
-            return JsonResponse({"error": str(exc)}, status=400)
+        device, auth_error = require_agent_device(request)
+        if auth_error:
+            return auth_error
 
         body = request.body
         if not body:
@@ -107,12 +103,12 @@ class HeartbeatView(View):
         fw_version = request.headers.get("X-Fw-Version") or payload.get("fw_version")
 
         try:
-            device = get_or_create_device(
-                device_id,
+            touch_device_metadata(
+                device,
                 hw_version=str(hw_version) if hw_version else None,
                 fw_version=str(fw_version) if fw_version else None,
             )
-            enqueue_heartbeat(device_id, payload)
+            enqueue_heartbeat(device.device_id, payload)
         except (DatabaseError, OperationalError):
             return _service_unavailable()
         except Exception:
@@ -134,20 +130,18 @@ class OtaCheckView(View):
     """GET — return 302 to signed firmware URL when a newer build exists for the cohort."""
 
     def get(self, request):
-        device_id_raw = request.headers.get("X-Device-Id") or request.GET.get("device_id")
-        hw_version = request.GET.get("hw_version", "1.0")
-        fw_version = request.GET.get("fw_version", "0.0.0")
+        device, auth_error = require_agent_device(request)
+        if auth_error:
+            return auth_error
 
-        if not device_id_raw:
-            return JsonResponse({"error": "Missing device_id."}, status=400)
-        try:
-            device_id = normalize_device_id(device_id_raw)
-        except ValueError as exc:
-            return JsonResponse({"error": str(exc)}, status=400)
+        hw_version = request.GET.get("hw_version", device.hw_version or "1.0")
+        fw_version = request.GET.get("fw_version", device.fw_version or "0.0.0")
 
         try:
-            device = get_or_create_device(
-                device_id, hw_version=hw_version, fw_version=fw_version
+            touch_device_metadata(
+                device,
+                hw_version=hw_version,
+                fw_version=fw_version,
             )
             release = find_ota_release(device)
             if release is None:
@@ -169,13 +163,9 @@ class OtaReportView(View):
     """POST OTA outcome updates from device (updated / failed / rolled_back)."""
 
     def post(self, request):
-        device_id_raw = request.headers.get("X-Device-Id") or request.GET.get("device_id")
-        if not device_id_raw:
-            return JsonResponse({"error": "Missing X-Device-Id header."}, status=400)
-        try:
-            device_id = normalize_device_id(device_id_raw)
-        except ValueError as exc:
-            return JsonResponse({"error": str(exc)}, status=400)
+        device, auth_error = require_agent_device(request)
+        if auth_error:
+            return auth_error
 
         payload = {}
         if request.body:
@@ -202,7 +192,6 @@ class OtaReportView(View):
             )
 
         try:
-            device = get_or_create_device(device_id)
             target = (
                 OtaDeploymentTarget.objects.select_related("deployment", "deployment__firmware")
                 .filter(
