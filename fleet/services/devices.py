@@ -63,6 +63,11 @@ def rotate_device_token(device: Device) -> str:
     return set_device_token(device)
 
 
+def delete_device(device: Device) -> None:
+    """Remove device and cascade telemetry, events, commands, and OTA targets."""
+    device.delete()
+
+
 class AgentAuthError(Exception):
     def __init__(self, message: str, status: int = 401):
         super().__init__(message)

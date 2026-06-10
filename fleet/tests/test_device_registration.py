@@ -40,6 +40,25 @@ def test_register_device_returns_token_once(auth_client):
 
 
 @pytest.mark.django_db
+def test_delete_device(auth_client):
+    Device.objects.create(device_id="aabbccddeeff", label="remove me")
+
+    missing = auth_client.delete("/api/v1/dashboard/devices/deadbeef0000/")
+    assert missing.status_code == 404
+
+    response = auth_client.delete("/api/v1/dashboard/devices/aabbccddeeff/")
+    assert response.status_code == 204
+    assert not Device.objects.filter(device_id="aabbccddeeff").exists()
+
+    reregister = auth_client.post(
+        "/api/v1/dashboard/devices/register/",
+        {"device_id": "aabbccddeeff", "label": "Again"},
+        content_type="application/json",
+    )
+    assert reregister.status_code == 201
+
+
+@pytest.mark.django_db
 def test_rotate_device_token(auth_client):
     device = Device.objects.create(device_id="240ac4a1b2c3")
     set_device_token(device)

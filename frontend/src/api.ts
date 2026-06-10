@@ -253,6 +253,12 @@ export const api = {
     const data = (await res.json()) as DeviceWithToken;
     return { deviceId: data.device_id, token: data.token };
   },
+  deleteDevice: async (deviceId: string) => {
+    const res = await apiFetch(`/devices/${deviceId}/`, { method: "DELETE" });
+    if (!res.ok) {
+      throw new Error(await parseErrorMessage(res, "Failed to delete device"));
+    }
+  },
   metrics: (
     deviceId: string,
     params?: { limit?: number; end?: string }
