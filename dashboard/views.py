@@ -22,7 +22,12 @@ from fleet.models import (
     TelemetryThresholdConfig,
 )
 from fleet.services.commands import queue_device_command
-from fleet.services.devices import normalize_device_id, register_device, rotate_device_token
+from fleet.services.devices import (
+    delete_device,
+    normalize_device_id,
+    register_device,
+    rotate_device_token,
+)
 from fleet.services.events import create_event
 from fleet.services.storage import StorageError, delete_object, upload_bytes
 from fleet.services.thresholds import current_thresholds, default_thresholds_for_hw
@@ -115,6 +120,21 @@ class DeviceRegisterView(DashboardAuthMixin, APIView):
         payload = DeviceSerializer(device).data
         payload["token"] = token
         return Response(payload, status=201)
+
+
+class DeviceDetailView(DashboardAuthMixin, APIView):
+    def delete(self, request, device_id: str):
+        try:
+            normalized = normalize_device_id(device_id)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=400)
+
+        device = Device.objects.filter(device_id=normalized).first()
+        if not device:
+            return Response({"detail": "device not found"}, status=404)
+
+        delete_device(device)
+        return Response(status=204)
 
 
 class DeviceTokenRotateView(DashboardAuthMixin, APIView):

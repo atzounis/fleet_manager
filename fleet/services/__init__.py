@@ -1,5 +1,6 @@
 from .devices import (
     authenticate_agent_request,
+    delete_device,
     normalize_device_id,
     register_device,
     rotate_device_token,
@@ -13,6 +14,7 @@ __all__ = [
     "find_ota_release",
     "authenticate_agent_request",
     "register_device",
+    "delete_device",
     "rotate_device_token",
     "touch_device_metadata",
     "get_s3_client",

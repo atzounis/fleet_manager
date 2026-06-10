@@ -90,6 +90,7 @@ export default function App() {
     null
   );
   const [rotatingToken, setRotatingToken] = useState(false);
+  const [deletingDevice, setDeletingDevice] = useState(false);
 
   useEffect(() => {
     auth
@@ -1172,9 +1173,10 @@ export default function App() {
               {editError && <p className="mt-2 text-xs text-red-300">{editError}</p>}
 
               <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  disabled={rotatingToken}
+                  disabled={rotatingToken || deletingDevice}
                   className="rounded-md border border-amber-700/70 px-3 py-2 text-sm text-amber-200 hover:bg-amber-950/40 disabled:opacity-50"
                   onClick={async () => {
                     if (!editingDevice) return;
@@ -1209,6 +1211,49 @@ export default function App() {
                 >
                   {rotatingToken ? "Rotating…" : "Rotate agent token"}
                 </button>
+                <button
+                  type="button"
+                  disabled={rotatingToken || deletingDevice || savingLabel}
+                  className="rounded-md border border-rose-800/70 px-3 py-2 text-sm text-rose-300 hover:bg-rose-950/40 disabled:opacity-50"
+                  onClick={async () => {
+                    if (!editingDevice) return;
+                    if (
+                      !window.confirm(
+                        `Delete ${editingDevice.device_id} from the fleet? Its telemetry, events, and agent token will be removed. The device can be registered again later.`
+                      )
+                    ) {
+                      return;
+                    }
+                    setDeletingDevice(true);
+                    setEditError(null);
+                    try {
+                      const removedId = editingDevice.device_id;
+                      await api.deleteDevice(removedId);
+                      setDevices((current) =>
+                        current.filter((d) => d.device_id !== removedId)
+                      );
+                      setOtaTargets((current) => current.filter((id) => id !== removedId));
+                      if (selectedId === removedId) {
+                        setSelectedId(null);
+                      }
+                      if (eventDeviceFilter === removedId) {
+                        setEventDeviceFilter("all");
+                      }
+                      setEditingDevice(null);
+                      const s = await api.stats();
+                      setStats(s);
+                    } catch (e) {
+                      setEditError(
+                        e instanceof Error ? e.message : "Failed to delete device"
+                      );
+                    } finally {
+                      setDeletingDevice(false);
+                    }
+                  }}
+                >
+                  {deletingDevice ? "Deleting…" : "Delete device"}
+                </button>
+                </div>
                 <div className="flex items-center gap-2">
                 <button
                   type="button"

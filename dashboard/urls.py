@@ -12,6 +12,11 @@ urlpatterns = [
     path("devices/", views.DeviceListView.as_view(), name="device-list"),
     path("devices/register/", views.DeviceRegisterView.as_view(), name="device-register"),
     path(
+        "devices/<str:device_id>/",
+        views.DeviceDetailView.as_view(),
+        name="device-detail",
+    ),
+    path(
         "devices/<str:device_id>/token/",
         views.DeviceTokenRotateView.as_view(),
         name="device-token-rotate",
