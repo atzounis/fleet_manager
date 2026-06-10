@@ -5,11 +5,8 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import Count, Q
 from django.utils.dateparse import parse_datetime
-from django.utils.decorators import method_decorator
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 from rest_framework import generics
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -29,6 +26,7 @@ from fleet.services.events import create_event
 from fleet.services.storage import StorageError, delete_object, upload_bytes
 from fleet.services.thresholds import current_thresholds, default_thresholds_for_hw
 
+from .mixins import DashboardAuthMixin
 from .serializers import (
     CohortSerializer,
     CrashReportSerializer,
@@ -41,7 +39,7 @@ from .serializers import (
 )
 
 
-class FleetStatsView(APIView):
+class FleetStatsView(DashboardAuthMixin, APIView):
     def get(self, request):
         stale_cutoff = timezone.now() - timezone.timedelta(
             seconds=settings.HEARTBEAT_ONLINE_WINDOW_SECONDS
@@ -66,7 +64,7 @@ class FleetStatsView(APIView):
         )
 
 
-class DeviceListView(generics.ListAPIView):
+class DeviceListView(DashboardAuthMixin, generics.ListAPIView):
     serializer_class = DeviceSerializer
 
     def get_queryset(self):
@@ -82,10 +80,7 @@ class DeviceListView(generics.ListAPIView):
         return qs
 
 
-@method_decorator(csrf_exempt, name="dispatch")
-class DeviceLabelUpdateView(APIView):
-    authentication_classes: list[type[SessionAuthentication]] = []
-
+class DeviceLabelUpdateView(DashboardAuthMixin, APIView):
     def patch(self, request, device_id: str):
         return self._save(request, device_id)
 
@@ -104,10 +99,7 @@ class DeviceLabelUpdateView(APIView):
         return Response(DeviceSerializer(device).data)
 
 
-@method_decorator(csrf_exempt, name="dispatch")
-class DeviceCommandCreateView(APIView):
-    authentication_classes: list[type[SessionAuthentication]] = []
-
+class DeviceCommandCreateView(DashboardAuthMixin, APIView):
     def post(self, request, device_id: str):
         command = str(request.data.get("command", "reboot")).strip()
         if command != "reboot":
@@ -131,7 +123,7 @@ class DeviceCommandCreateView(APIView):
         )
 
 
-class DeviceMetricsView(generics.ListAPIView):
+class DeviceMetricsView(DashboardAuthMixin, generics.ListAPIView):
     serializer_class = HeartbeatSerializer
     METRICS_MAX_HISTORY_DAYS = 7
     METRICS_DEFAULT_LIMIT = 48
@@ -165,12 +157,12 @@ class DeviceMetricsView(generics.ListAPIView):
         return qs.order_by("-recorded_at")[:limit]
 
 
-class CrashListView(generics.ListAPIView):
+class CrashListView(DashboardAuthMixin, generics.ListAPIView):
     serializer_class = CrashReportSerializer
     queryset = CrashReport.objects.select_related("device").order_by("-received_at")
 
 
-class EventListView(generics.ListAPIView):
+class EventListView(DashboardAuthMixin, generics.ListAPIView):
     serializer_class = FleetEventSerializer
 
     def get_queryset(self):
@@ -197,17 +189,14 @@ class EventListView(generics.ListAPIView):
         return qs
 
 
-class FirmwareListView(generics.ListCreateAPIView):
+class FirmwareListView(DashboardAuthMixin, generics.ListCreateAPIView):
     serializer_class = FirmwareReleaseSerializer
 
     def get_queryset(self):
         return FirmwareRelease.objects.select_related("cohort").order_by("-created_at")
 
 
-@method_decorator(csrf_exempt, name="dispatch")
-class OtaDeploymentListCreateView(APIView):
-    authentication_classes: list[type[SessionAuthentication]] = []
-
+class OtaDeploymentListCreateView(DashboardAuthMixin, APIView):
     def get(self, request):
         qs = OtaDeployment.objects.select_related("firmware").prefetch_related(
             "targets__device"
@@ -307,10 +296,7 @@ class OtaDeploymentListCreateView(APIView):
         return Response(OtaDeploymentSerializer(deployment).data, status=201)
 
 
-@method_decorator(csrf_exempt, name="dispatch")
-class OtaDeploymentDetailView(APIView):
-    authentication_classes: list[type[SessionAuthentication]] = []
-
+class OtaDeploymentDetailView(DashboardAuthMixin, APIView):
     def delete(self, request, deployment_id: int):
         deployment = (
             OtaDeployment.objects.select_related("firmware")
@@ -336,17 +322,14 @@ class OtaDeploymentDetailView(APIView):
         return Response(status=204)
 
 
-class CohortListView(generics.ListAPIView):
+class CohortListView(DashboardAuthMixin, generics.ListAPIView):
     serializer_class = CohortSerializer
 
     def get_queryset(self):
         return Cohort.objects.annotate(device_count=Count("devices")).order_by("name")
 
 
-@method_decorator(csrf_exempt, name="dispatch")
-class TelemetryThresholdConfigView(APIView):
-    authentication_classes: list[type[SessionAuthentication]] = []
-
+class TelemetryThresholdConfigView(DashboardAuthMixin, APIView):
     def get(self, request):
         hw_version = request.query_params.get("hw_version")
         if hw_version:
