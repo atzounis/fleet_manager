@@ -6,8 +6,8 @@
 #define WIFI_PASSWORD "your-wifi-password"
 
 /* Server host: LAN IP or hostname — NOT 127.0.0.1 from the device */
-#define FLEET_API_HOST "YOUR_HETZNER_SERVER_IP"
-#define FLEET_API_PORT 8993
+#define FLEET_API_HOST "your-server.example.com"
+#define FLEET_API_PORT 52841
 
 /* Per-device token from dashboard → Register device (shown once). */
 #define FLEET_DEVICE_TOKEN "paste-token-from-dashboard"

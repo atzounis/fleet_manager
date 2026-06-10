@@ -28,7 +28,7 @@ cp secrets.example.h secrets.h   # secrets.h is gitignored — stays on your mac
 ```
 
 1. Set `WIFI_SSID` / `WIFI_PASSWORD`
-2. Set `FLEET_API_HOST` / `FLEET_API_PORT` (e.g. Hetzner `YOUR_HETZNER_SERVER_IP` / `8993`, or your LAN IP / `52841` for local Docker)
+2. Set `FLEET_API_HOST` / `FLEET_API_PORT` to your Fleet Manager host (LAN IP / `52841` for local Docker, or your VPS IP / port for production)
 3. **Register the device** in the dashboard (**Register device**) using the MAC shown in Serial after first boot, then paste the one-time token into `FLEET_DEVICE_TOKEN`
 4. Keep `FLEET_HW_VERSION` as **`8266`** unless you use a custom scheme
 5. For local Docker: add your LAN IP to `ALLOWED_HOSTS` in `.env` and restart `web` (see root `README.md`)
