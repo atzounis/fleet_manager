@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   api,
+  auth,
   CHART_DEFAULT_ZOOM_INDEX,
   CHART_MAX_HISTORY_DAYS,
   CHART_ZOOM_LEVELS,
@@ -17,6 +18,7 @@ import {
   THRESHOLD_HW_PROFILES,
 } from "./api";
 import { DeviceChart } from "./components/DeviceChart";
+import { LoginPage } from "./components/LoginPage";
 import { StatCard } from "./components/StatCard";
 
 type Tab = "devices" | "events" | "firmware" | "settings";
@@ -36,6 +38,8 @@ function formatWindow(seconds: number): string {
 }
 
 export default function App() {
+  const [username, setUsername] = useState<string | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
   const [stats, setStats] = useState<FleetStats | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [events, setEvents] = useState<FleetEvent[]>([]);
@@ -79,6 +83,23 @@ export default function App() {
   const [rebootError, setRebootError] = useState<string | null>(null);
   const [queuingReboot, setQueuingReboot] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    auth
+      .ensureCsrf()
+      .then(() => auth.session())
+      .then((session) => setUsername(session.username))
+      .catch(() => setUsername(null))
+      .finally(() => setAuthChecking(false));
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await auth.logout();
+    } finally {
+      setUsername(null);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,16 +161,18 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (username) {
+      load();
+    }
+  }, [load, username]);
 
   useEffect(() => {
-    if (tab !== "events") return;
+    if (!username || tab !== "events") return;
     loadEvents();
-  }, [tab, loadEvents]);
+  }, [tab, loadEvents, username]);
 
   useEffect(() => {
-    if (tab !== "settings") return;
+    if (!username || tab !== "settings") return;
     setThresholdSuccess(null);
     api
       .thresholds(settingsHwVersion)
@@ -164,7 +187,7 @@ export default function App() {
       .catch((e) => {
         setThresholdError(e instanceof Error ? e.message : "Failed to load thresholds");
       });
-  }, [tab, settingsHwVersion]);
+  }, [tab, settingsHwVersion, username]);
 
   useEffect(() => {
     if (!thresholdSuccess) return;
@@ -173,7 +196,7 @@ export default function App() {
   }, [thresholdSuccess]);
 
   useEffect(() => {
-    if (!selectedId) {
+    if (!username || !selectedId) {
       setMetrics([]);
       return;
     }
@@ -186,7 +209,7 @@ export default function App() {
       .then((r) => setMetrics([...r.results].reverse()))
       .catch(() => setMetrics([]))
       .finally(() => setMetricsLoading(false));
-  }, [selectedId, chartEndBefore, chartMetricsLimit]);
+  }, [selectedId, chartEndBefore, chartMetricsLimit, username]);
 
   useEffect(() => {
     setChartEndBefore(null);
@@ -307,6 +330,18 @@ export default function App() {
     }
   }, [otaTargets, devices]);
 
+  if (authChecking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
+        Loading…
+      </div>
+    );
+  }
+
+  if (!username) {
+    return <LoginPage onSuccess={setUsername} />;
+  }
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
@@ -317,20 +352,30 @@ export default function App() {
             </p>
             <h1 className="text-xl font-semibold">Fleet Manager</h1>
           </div>
-          <button
-            type="button"
-            onClick={load}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm hover:bg-slate-800"
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="hidden text-sm text-slate-400 sm:inline">{username}</span>
+            <button
+              type="button"
+              onClick={load}
+              className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm hover:bg-slate-800"
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm hover:bg-slate-800"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl space-y-8 px-6 py-8">
         {error && (
           <div className="rounded-lg border border-red-800 bg-red-950/50 px-4 py-3 text-red-200">
-            {error} — ensure Django is running (see WEB_PORT in .env).
+            {error}
           </div>
         )}
 

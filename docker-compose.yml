@@ -74,7 +74,7 @@ services:
       minio-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/dashboard/stats/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/dashboard/health/"]
       interval: 10s
       timeout: 5s
       retries: 5

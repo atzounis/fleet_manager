@@ -3,5 +3,14 @@
 
 # Arduino IDE compile output
 **/build/
+*.tsbuildinfo
 
 .DS_Store
+
+# Raspberry Pi deploy (local secrets + SQLite on device)
+deploy/.env
+deploy/data/db.sqlite3
+
+# Hetzner deploy credentials and keys (never commit)
+hetzner_creds.txt
+hetzner_keys/

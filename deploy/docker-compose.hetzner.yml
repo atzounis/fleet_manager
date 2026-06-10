@@ -1,0 +1,45 @@
+# Backing services for native Gunicorn/Celery on Hetzner (isolated project + ports).
+# Does not start web/frontend — those run in the app venv via deploy_hetzner.sh.
+# Usage (on server): docker compose -p fleet_manager -f deploy/docker-compose.hetzner.yml --env-file .env up -d
+
+name: fleet_manager
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${FLEET_REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "${FLEET_MINIO_API_PORT:-9100}:9000"
+      - "${FLEET_MINIO_CONSOLE_PORT:-9101}:9001"
+    volumes:
+      - fleet_minio_data:/data
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 3;
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb -p local/fleet-manager || true;
+      exit 0;
+      "
+
+volumes:
+  fleet_minio_data:

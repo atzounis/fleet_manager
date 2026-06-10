@@ -1,5 +1,10 @@
 const API_BASE = "/api/v1/dashboard";
 
+function getCsrfToken(): string | null {
+  const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 async function parseErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const data = (await res.json()) as { detail?: string; error?: string };
@@ -11,13 +16,56 @@ async function parseErrorMessage(res: Response, fallback: string): Promise<strin
   return fallback;
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const method = (init.method || "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const csrf = getCsrfToken();
+    if (csrf) headers.set("X-CSRFToken", csrf);
+  }
+  return fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+    credentials: "include",
+  });
+}
+
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await apiFetch(path, init);
   if (!res.ok) {
     throw new Error(await parseErrorMessage(res, `API ${res.status}: ${path}`));
   }
   return res.json() as Promise<T>;
 }
+
+export const auth = {
+  ensureCsrf: () => apiFetch("/auth/csrf/"),
+  session: async () => {
+    const res = await apiFetch("/auth/session/");
+    if (!res.ok) {
+      throw new Error("Not authenticated");
+    }
+    return (await res.json()) as { username: string };
+  },
+  login: async (username: string, password: string) => {
+    await auth.ensureCsrf();
+    const res = await apiFetch("/auth/login/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) {
+      throw new Error(await parseErrorMessage(res, "Login failed"));
+    }
+    return (await res.json()) as { username: string };
+  },
+  logout: async () => {
+    const res = await apiFetch("/auth/logout/", { method: "POST" });
+    if (!res.ok) {
+      throw new Error("Logout failed");
+    }
+  },
+};
 
 export interface FleetStats {
   devices_total: number;
@@ -213,7 +261,7 @@ export const api = {
     body.append("version", payload.version);
     body.append("hw_version", payload.hwVersion);
     body.append("device_ids", JSON.stringify(payload.deviceIds));
-    const res = await fetch(`${API_BASE}/ota/deployments/`, {
+    const res = await apiFetch("/ota/deployments/", {
       method: "POST",
       body,
     });
@@ -225,7 +273,7 @@ export const api = {
     return (await res.json()) as OtaDeployment;
   },
   deleteOtaDeployment: async (deploymentId: number) => {
-    const res = await fetch(`${API_BASE}/ota/deployments/${deploymentId}/`, {
+    const res = await apiFetch(`/ota/deployments/${deploymentId}/`, {
       method: "DELETE",
     });
     if (!res.ok) {
@@ -243,7 +291,7 @@ export const api = {
       `/thresholds/?hw_version=${encodeURIComponent(hwVersion)}`
     ),
   updateThresholds: async (payload: ThresholdConfig) => {
-    const res = await fetch(`${API_BASE}/thresholds/`, {
+    const res = await apiFetch("/thresholds/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -254,7 +302,7 @@ export const api = {
     return (await res.json()) as ThresholdConfig;
   },
   updateDeviceLabel: async (deviceId: string, label: string) => {
-    const res = await fetch(`${API_BASE}/devices/${deviceId}/label/`, {
+    const res = await apiFetch(`/devices/${deviceId}/label/`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ label }),
@@ -267,7 +315,7 @@ export const api = {
     return (await res.json()) as Device;
   },
   queueDeviceReboot: async (deviceId: string) => {
-    const res = await fetch(`${API_BASE}/devices/${deviceId}/commands/`, {
+    const res = await apiFetch(`/devices/${deviceId}/commands/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command: "reboot" }),

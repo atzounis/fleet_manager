@@ -47,7 +47,8 @@ WSGI_APPLICATION = "core.wsgi.application"
 
 # Set DEV_USE_SQLITE=true to run manage.py without Postgres (heartbeats/storage still need Redis/MinIO).
 if os.environ.get("DEV_USE_SQLITE", "").lower() in ("1", "true", "yes"):
-    DATABASE_URL = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+    _sqlite_path = os.environ.get("SQLITE_DB_PATH", str(BASE_DIR / "db.sqlite3"))
+    DATABASE_URL = f"sqlite:///{_sqlite_path}"
 else:
     DATABASE_URL = os.environ.get(
         "DATABASE_URL", "postgres://fleet:fleet@localhost:47291/fleet_manager"
@@ -133,15 +134,22 @@ STORAGES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 _FRONTEND_PORT = os.environ.get("FRONTEND_PORT", "61294")
-CORS_ALLOWED_ORIGINS = [
+_DEFAULT_ORIGINS = [
     f"http://localhost:{_FRONTEND_PORT}",
     f"http://127.0.0.1:{_FRONTEND_PORT}",
 ]
+_EXTRA_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("CORS_EXTRA_ORIGINS", "").split(",")
+    if o.strip()
+]
+CORS_ALLOWED_ORIGINS = _DEFAULT_ORIGINS + _EXTRA_ORIGINS
 CORS_ALLOW_CREDENTIALS = True
-CSRF_TRUSTED_ORIGINS = [
-    f"http://localhost:{_FRONTEND_PORT}",
-    f"http://127.0.0.1:{_FRONTEND_PORT}",
-]
+CSRF_TRUSTED_ORIGINS = _DEFAULT_ORIGINS + [
+    o.strip()
+    for o in os.environ.get("CSRF_EXTRA_ORIGINS", "").split(",")
+    if o.strip()
+] + _EXTRA_ORIGINS
 
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.AllowAny"],

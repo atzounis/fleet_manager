@@ -5,8 +5,8 @@
 #define WIFI_SSID "your-wifi-ssid"
 #define WIFI_PASSWORD "your-wifi-password"
 
-/* LAN IP of the machine running Docker (NOT 127.0.0.1 — the ESP cannot reach localhost). */
-#define FLEET_API_HOST "192.168.1.100"
+/* Server host: Mac Bonjour name (.local) or LAN IP — NOT 127.0.0.1 */
+#define FLEET_API_HOST "your-mac-hostname.local"
 #define FLEET_API_PORT 52841
 
 /*

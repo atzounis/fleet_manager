@@ -1,8 +1,13 @@
 from django.urls import path
 
-from . import views
+from . import auth_views, views
 
 urlpatterns = [
+    path("health/", auth_views.HealthView.as_view(), name="dashboard-health"),
+    path("auth/csrf/", auth_views.CsrfView.as_view(), name="dashboard-auth-csrf"),
+    path("auth/login/", auth_views.LoginView.as_view(), name="dashboard-auth-login"),
+    path("auth/logout/", auth_views.LogoutView.as_view(), name="dashboard-auth-logout"),
+    path("auth/session/", auth_views.SessionView.as_view(), name="dashboard-auth-session"),
     path("stats/", views.FleetStatsView.as_view(), name="fleet-stats"),
     path("devices/", views.DeviceListView.as_view(), name="device-list"),
     path(

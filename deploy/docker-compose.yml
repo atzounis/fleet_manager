@@ -1,0 +1,117 @@
+# Raspberry Pi / edge host: SQLite metadata DB (no PostgreSQL).
+# Run from repo root: docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "${MINIO_API_HOST_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 3;
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb -p local/fleet-manager || true;
+      exit 0;
+      "
+
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["/app/docker/entrypoint-web.sh"]
+    env_file: .env
+    environment:
+      DEV_USE_SQLITE: "true"
+      SQLITE_DB_PATH: /app/data/db.sqlite3
+      DEBUG: "false"
+      REDIS_URL: redis://redis:6379/0
+      AWS_S3_ENDPOINT_URL: http://minio:9000
+      GUNICORN_WORKERS: "${GUNICORN_WORKERS:-2}"
+    ports:
+      - "${WEB_PORT:-52841}:8000"
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/dashboard/health/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    restart: unless-stopped
+
+  celery-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: celery -A core worker --loglevel=info
+    env_file: .env
+    environment:
+      DEV_USE_SQLITE: "true"
+      SQLITE_DB_PATH: /app/data/db.sqlite3
+      REDIS_URL: redis://redis:6379/0
+      AWS_S3_ENDPOINT_URL: http://minio:9000
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+  celery-beat:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: celery -A core beat --loglevel=info
+    env_file: .env
+    environment:
+      DEV_USE_SQLITE: "true"
+      SQLITE_DB_PATH: /app/data/db.sqlite3
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - celery-worker
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-61294}:80"
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  minio_data:
