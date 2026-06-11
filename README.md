@@ -12,8 +12,9 @@ Built with **Django 5**, **Celery**, **PostgreSQL**, **Redis**, and **S3-compati
 | **Heartbeats** | `POST /api/v1/agent/heartbeat/` | CBOR metrics (heap, RSSI, battery) buffered in Redis, flushed to Postgres every 60s; response may include a one-shot **remote command** (e.g. reboot) |
 | **OTA pull** | `GET /api/v1/agent/ota-check/` | `302` redirect to a signed firmware URL when a newer build exists for the device cohort |
 | **Remote reboot** | (via heartbeat response) | Dashboard queues reboot; device applies on next heartbeat (~60s) with `command_id` dedup |
+| **Device registration** | Dashboard UI + API | Register by MAC; per-device `X-Device-Token` required on all agent calls |
 
-Devices are identified by their **6-byte factory MAC** as a 12-character lowercase hex string (e.g. `240ac4a1b2c3`).
+Devices are identified by their **6-byte factory MAC** as a 12-character lowercase hex string (e.g. `240ac4a1b2c3`). They must be **registered** in the dashboard before the agent API accepts traffic.
 
 ## Architecture
 
@@ -145,7 +146,7 @@ OTA matching uses **semantic versioning** per `hw_version` and **cohort**. Devic
 | Model | Purpose |
 |-------|---------|
 | `Cohort` | Named rollout group (e.g. `stable`, `canary`) |
-| `Device` | Primary key = 12-char MAC hex; tracks `hw_version`, `fw_version`, `last_seen_at` |
+| `Device` | Primary key = 12-char MAC hex; `token_hash` for agent auth; tracks `hw_version`, `fw_version`, `last_seen_at` |
 | `HeartbeatMetric` | Time-series rows: heap, min heap, RSSI, battery (indexed columns, not JSON) |
 | `CrashReport` | S3 keys, panic reason, symbolication status/trace |
 | `FirmwareRelease` | Version + `hw_version` + cohort + `s3_key` for the binary in object storage |
@@ -188,9 +189,10 @@ fleet_manager/
 │   ├── sdk/              # Shared C headers (reference)
 │   └── examples/         # Arduino + ESP-IDF ready-to-flash agents
 ├── images/               # README screenshots (hardware setup, dashboard, OTA)
-├── scripts/              # stop-local.sh, simulate_heartbeat.py
+├── scripts/              # stop-local.sh, simulate_heartbeat.py, deploy-rpi.sh
+├── deploy/               # VPS/RPi compose fragments, nginx vhost, env templates
 ├── docker/               # Gunicorn entrypoint, nginx config for frontend image
-├── docker-compose.yml    # Full production stack
+├── docker-compose.yml    # Full production stack (local Docker)
 ├── manage.py
 ├── requirements.txt
 └── README.md
@@ -209,7 +211,10 @@ cp -n .env.example .env   # skip if .env exists
 
 docker compose up --build -d
 docker compose exec web python manage.py seed_demo
+# If seed_demo issues a device token, copy it for simulate_heartbeat.py / firmware secrets.h
 ```
+
+On first stack start, `ensure_dashboard_admin` creates the dashboard user from `DASHBOARD_ADMIN_USERNAME` / `DASHBOARD_ADMIN_PASSWORD` in `.env`.
 
 | Service | URL (default host ports) |
 |---------|--------------------------|
@@ -320,7 +325,7 @@ Full guides: [`firmware/examples/README.md`](firmware/examples/README.md)
 ```bash
 cp firmware/examples/arduino/FleetManagerAgent/secrets.example.h \
    firmware/examples/arduino/FleetManagerAgent/secrets.h
-# Edit secrets.h: Wi-Fi + FLEET_API_HOST=<your LAN IP>
+# Edit secrets.h: Wi-Fi, FLEET_API_HOST=<your LAN IP>, FLEET_DEVICE_TOKEN=<from dashboard>
 ```
 
 1. Connect the ESP32 to your computer with USB (if there is a power switch, make sure it is set to **OFF**). A WROVER module is shown below; any ESP32 dev board works.
@@ -331,7 +336,9 @@ cp firmware/examples/arduino/FleetManagerAgent/secrets.example.h \
 
    ![Arduino IDE compiling and flashing the Fleet Manager agent](images/arduino-ide-upload.jpg)
 
-3. Open **Serial Monitor** @ **115200** baud. On success you should see the device ID (Wi‑Fi MAC), API URL, Wi‑Fi join, then heartbeats returning **HTTP 200**.
+3. Open **Serial Monitor** @ **115200** baud and note **Device ID** (Wi‑Fi MAC). **Register** it in the dashboard (**+ Register**), copy the one-time token into `FLEET_DEVICE_TOKEN` in `secrets.h`, and **upload again**.
+
+4. On success you should see heartbeats returning **HTTP 200** (not **401**).
 
    ![Serial Monitor showing heartbeats accepted by the platform](images/arduino-serial-monitor.jpg)
 
@@ -349,7 +356,8 @@ WiFi connecting to Argo_IoT....
 WiFi OK
 IP=192.168.68.110 RSSI=-51
 [crash-report] accepted
-[heartbeat] OK heap=226920 min_heap=222712 rssi=-51 batt=21 mV cpu=41C
+[heartbeat] device_id=30aea4c2cdc4 sending...
+[heartbeat] OK device_id=30aea4c2cdc4 heap=226920 min_heap=222712 rssi=-51 batt=21 mV cpu=41C
 [ota] checking for update (fw 1.1.3)...
 [ota] no update
 ```
@@ -363,14 +371,15 @@ Same agent API as ESP32, but a **separate sketch and `.bin`**. Use HW version **
 ```bash
 cp firmware/examples/arduino/FleetManagerAgent8266/secrets.example.h \
    firmware/examples/arduino/FleetManagerAgent8266/secrets.h
-# Edit secrets.h: Wi-Fi + FLEET_API_HOST=<your LAN IP>
+# Edit secrets.h: Wi-Fi, FLEET_API_HOST, FLEET_DEVICE_TOKEN, keep FLEET_HW_VERSION "8266"
 ```
 
 1. Install board package **esp8266** by ESP8266 Community (Boards Manager).
 2. Open `firmware/examples/arduino/FleetManagerAgent8266/FleetManagerAgent8266.ino`.
 3. Select your board (e.g. **LOLIN(WEMOS) D1 R2 & mini**) and an **OTA-capable** flash size.
-4. Upload; Serial Monitor @ **115200** — expect `HW 8266` and heartbeats.
-5. For OTA: export **`FleetManagerAgent8266.ino.bin`**, deploy with **HW version `8266`** in the Firmware tab.
+4. Upload; note **Device ID** in Serial Monitor, **register** in the dashboard, set `FLEET_DEVICE_TOKEN` in `secrets.h`, and upload again.
+5. Expect `HW 8266` and heartbeats with **HTTP 200**.
+6. For OTA: export **`FleetManagerAgent8266.ino.bin`**, deploy with **HW version `8266`** in the Firmware tab.
 
 Example output:
 
@@ -386,7 +395,8 @@ WiFi connecting to Argo_IoT........
 WiFi OK
 IP=192.168.68.123 RSSI=-60
 [crash-report] accepted
-[heartbeat] OK heap=49248 min_heap=49248 rssi=-59 batt=0 mV
+[heartbeat] device_id=600194755901 sending...
+[heartbeat] OK device_id=600194755901 heap=49248 min_heap=49248 rssi=-59 batt=0 mV
 [ota] checking for update (fw 1.0.1)...
 [ota] no update
 ```
@@ -490,10 +500,11 @@ idf.py -p PORT flash monitor
 
 ```bash
 docker compose up -d
-python3 scripts/simulate_heartbeat.py --device-id 240ac4dead01
+# Register 240ac4dead01 in the dashboard (or use seed_demo token), then:
+FLEET_DEVICE_TOKEN=<token> python3 scripts/simulate_heartbeat.py --device-id 240ac4dead01
 ```
 
-Open http://localhost:61294 — allow ~60s for Redis flush, or check `curl http://localhost:52841/api/v1/dashboard/devices/`.
+Open http://localhost:61294 — log in with `DASHBOARD_ADMIN_*` credentials. Allow ~60s for Redis flush, or check `curl http://localhost:52841/api/v1/dashboard/devices/` (requires session auth).
 
 **Important:** ESP32 must use your PC's **LAN IP** (e.g. `192.168.1.42:52841`), not `127.0.0.1`.
 
@@ -511,14 +522,16 @@ For a full **USB → export → deploy → device reboot → dashboard completed
 
 ### Dashboard (React UI)
 
-The SPA at **http://localhost:61294** (or `FRONTEND_PORT`) has four tabs:
+The SPA at **http://localhost:61294** (or `FRONTEND_PORT`) requires **login** (session cookie). Credentials come from `DASHBOARD_ADMIN_USERNAME` / `DASHBOARD_ADMIN_PASSWORD` in `.env`, created on stack start via `ensure_dashboard_admin`.
 
 | Tab | What you can do |
 |-----|-----------------|
-| **Devices** | Fleet overview, per-device telemetry charts, **zoom in/out** (up to ~1 week of history), **Older / Newer / Latest** navigation, **Restart device** (online devices only) |
+| **Devices** | **+ Register** new devices (one-time agent token), edit label, **rotate token**, **delete device**, per-device telemetry charts, **zoom in/out** (up to ~1 week of history), **Older / Newer / Latest** navigation, **Restart device** (online devices only) |
 | **Events** | Paginated event log (50 per page) with filters: **device**, **time range**, **severity**, **metric** (threshold breaches) |
 | **Firmware** | Upload `.bin`, deploy OTA to selected devices (match **HW version** — `1.0` for ESP32, **`8266`** for ESP8266) |
 | **Settings** | Per device-type thresholds (ESP32 vs ESP8266) that drive chart red lines and `threshold_breach` alerts |
+
+**Device registration:** Click **+ Register**, enter the 12-char MAC (from Serial or board), optional label and HW version. Copy the **one-time token** into `FLEET_DEVICE_TOKEN` in firmware `secrets.h` and reflash via USB. Use **Rotate agent token** in the edit (✎) modal if the token is lost. **Delete device** removes the fleet record and telemetry; the same MAC can be registered again later.
 
 **Remote restart:** On the Devices tab, select an online device and click **Restart device**. The platform queues a reboot; the agent receives it on the next heartbeat (~60s), stores the `command_id` in EEPROM/NVS so the same command cannot reboot the device twice, waits 1s, then calls `ESP.restart()` / `esp_restart()` outside the HTTP handler.
 
@@ -548,6 +561,8 @@ If Serial shows `[heartbeat] HTTP 400` or `[crash-report] HTTP 400` while Wi‑F
 4. Reset the ESP32. You should see `[heartbeat] HTTP 200` and, if test crash is enabled, `[crash-report] HTTP 202`.
 
 A **400** with a short HTML body is typical for `DisallowedHost`. A **400** with JSON like `Missing X-Device-Id` means the host is allowed but headers or CBOR are wrong — check `X-Device-Id` and that `fleet_cbor.h` uses `extern "C"` for Arduino builds.
+
+**401** / **403** on heartbeat usually means the device is not registered or `X-Device-Token` is missing or wrong — register in the dashboard and update `secrets.h`, then reflash via USB (OTA cannot fix a missing token header).
 
 ## Agent API reference
 
@@ -626,12 +641,18 @@ Database or storage failures return **503** so devices back off instead of retry
 
 ## Dashboard API
 
-Base path: `/api/v1/dashboard/`
+Base path: `/api/v1/dashboard/` — all endpoints except `GET /health/` and auth routes require a logged-in session.
 
 | Endpoint | Description |
 |----------|-------------|
+| `POST /auth/login/` | Dashboard login (`username`, `password`) |
+| `POST /auth/logout/` | End session |
+| `GET /auth/session/` | Current user |
 | `GET /stats/` | Fleet summary and default threshold snapshot |
 | `GET /devices/` | Device list |
+| `POST /devices/register/` | Register device by MAC; returns one-time `token` |
+| `DELETE /devices/{device_id}/` | Remove device and cascade telemetry/events |
+| `POST /devices/{device_id}/token/` | Rotate agent token; returns new one-time `token` |
 | `GET /devices/{device_id}/metrics/` | Heartbeat history (`limit`, optional `end` cursor for paging backward in time) |
 | `POST /devices/{device_id}/commands/` | Queue remote command, e.g. `{"command":"reboot"}` |
 | `PATCH /devices/{device_id}/label/` | Update device label |
@@ -688,6 +709,27 @@ Telemetry charts and `threshold_breach` events use per-HW profiles (editable in 
 | `THRESHOLD_CPU_TEMPERATURE_C_MAX` | `75` | Both families |
 
 Use **Settings → Device type** to tune ESP32 (`1.0`) and ESP8266 (`8266`) separately so 8266 devices are not flagged for low heap at ESP32 limits.
+
+## VPS deployment (Hetzner / cloud)
+
+For a single-server production deploy (SQLite, isolated Redis/MinIO, Gunicorn + Celery + nginx), use the templates under `deploy/`:
+
+| File | Purpose |
+|------|---------|
+| [`deploy/env.hetzner.example`](deploy/env.hetzner.example) | Server `.env` — replace `YOUR_HETZNER_SERVER_IP`, set `DASHBOARD_ADMIN_PASSWORD`, `SECRET_KEY` |
+| [`deploy/docker-compose.hetzner.yml`](deploy/docker-compose.hetzner.yml) | Redis + MinIO only (web runs in venv on the host) |
+| [`deploy/nginx-fleet-manager.conf`](deploy/nginx-fleet-manager.conf) | nginx vhost for dashboard + API proxy |
+
+Typical flow on the VPS:
+
+1. Rsync or `git pull` the repo to `/root/fleet_manager` (do **not** commit `secrets.h`, `hetzner_creds.txt`, or private deploy scripts).
+2. Copy `deploy/env.hetzner.example` → `.env` and fill in your public IP/hostnames.
+3. `docker compose -p fleet_manager -f deploy/docker-compose.hetzner.yml --env-file .env up -d`
+4. Python venv, `pip install -r requirements.txt`, `migrate`, `collectstatic`, `ensure_dashboard_admin`
+5. Gunicorn on `127.0.0.1:FLEET_GUNICORN_PORT`, Celery worker + beat, nginx on `FLEET_PUBLIC_PORT`
+6. Point device `FLEET_API_HOST` / `FLEET_API_PORT` at the VPS; register each device in the dashboard
+
+`scripts/deploy-rpi.sh` covers a similar layout for Raspberry Pi. Keep server-specific deploy automation local (gitignored) if it contains your IP or SSH details.
 
 ## License
 
