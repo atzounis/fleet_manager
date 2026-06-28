@@ -17,7 +17,7 @@ Never deploy an ESP32 `.bin` to ESP8266 or vice versa.
 
 - [Arduino IDE](https://www.arduino.cc/) 2.x or Arduino CLI
 - Board package: **esp8266** by ESP8266 Community (3.x)
-- Fleet Manager server reachable from the device (Docker locally or Hetzner)
+- Fleet Manager server reachable from the device (local Docker or your own VPS)
 
 Install the board package: **Tools → Board → Boards Manager** → search **esp8266** → install **esp8266 by ESP8266 Community**.
 

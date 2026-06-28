@@ -189,8 +189,7 @@ fleet_manager/
 │   ├── sdk/              # Shared C headers (reference)
 │   └── examples/         # Arduino + ESP-IDF ready-to-flash agents
 ├── images/               # README screenshots (hardware setup, dashboard, OTA)
-├── scripts/              # stop-local.sh, simulate_heartbeat.py, deploy-rpi.sh
-├── deploy/               # VPS/RPi compose fragments, nginx vhost, env templates
+├── scripts/              # stop-local.sh, simulate_heartbeat.py
 ├── docker/               # Gunicorn entrypoint, nginx config for frontend image
 ├── docker-compose.yml    # Full production stack (local Docker)
 ├── manage.py
@@ -709,27 +708,6 @@ Telemetry charts and `threshold_breach` events use per-HW profiles (editable in 
 | `THRESHOLD_CPU_TEMPERATURE_C_MAX` | `75` | Both families |
 
 Use **Settings → Device type** to tune ESP32 (`1.0`) and ESP8266 (`8266`) separately so 8266 devices are not flagged for low heap at ESP32 limits.
-
-## VPS deployment (Hetzner / cloud)
-
-For a single-server production deploy (SQLite, isolated Redis/MinIO, Gunicorn + Celery + nginx), use the templates under `deploy/`:
-
-| File | Purpose |
-|------|---------|
-| [`deploy/env.hetzner.example`](deploy/env.hetzner.example) | Server `.env` — replace `YOUR_HETZNER_SERVER_IP`, set `DASHBOARD_ADMIN_PASSWORD`, `SECRET_KEY` |
-| [`deploy/docker-compose.hetzner.yml`](deploy/docker-compose.hetzner.yml) | Redis + MinIO only (web runs in venv on the host) |
-| [`deploy/nginx-fleet-manager.conf`](deploy/nginx-fleet-manager.conf) | nginx vhost for dashboard + API proxy |
-
-Typical flow on the VPS:
-
-1. Rsync or `git pull` the repo to `/root/fleet_manager` (do **not** commit `secrets.h`, `hetzner_creds.txt`, or private deploy scripts).
-2. Copy `deploy/env.hetzner.example` → `.env` and fill in your public IP/hostnames.
-3. `docker compose -p fleet_manager -f deploy/docker-compose.hetzner.yml --env-file .env up -d`
-4. Python venv, `pip install -r requirements.txt`, `migrate`, `collectstatic`, `ensure_dashboard_admin`
-5. Gunicorn on `127.0.0.1:FLEET_GUNICORN_PORT`, Celery worker + beat, nginx on `FLEET_PUBLIC_PORT`
-6. Point device `FLEET_API_HOST` / `FLEET_API_PORT` at the VPS; register each device in the dashboard
-
-`scripts/deploy-rpi.sh` covers a similar layout for Raspberry Pi. Keep server-specific deploy automation local (gitignored) if it contains your IP or SSH details.
 
 ## License
 

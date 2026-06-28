@@ -7,14 +7,9 @@
 
 .DS_Store
 
-# Raspberry Pi deploy (local secrets + SQLite on device)
-deploy/.env
-deploy/data/db.sqlite3
-
-# Hetzner deploy credentials and keys (never commit)
+# Local-only deploy credentials and scripts (never commit)
+deploy_hetzner.sh
 hetzner_creds.txt
 hetzner_keys/
-deploy_hetzner.sh
-deploy_hetzner.sh.example
 
 firmware/examples/arduino/FleetManagerAgent8266DHT

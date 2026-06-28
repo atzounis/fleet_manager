@@ -28,7 +28,7 @@ Encoding is implemented in `fleet_cbor.c` (same format as `firmware/sdk/`).
 
 - [Arduino IDE](https://www.arduino.cc/) or Arduino CLI
 - Board package: **esp32** by Espressif (3.x)
-- Fleet Manager server reachable from the device (Docker locally or Hetzner)
+- Fleet Manager server reachable from the device (local Docker or your own VPS)
 
 ## Configure
 
